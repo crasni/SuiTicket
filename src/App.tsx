@@ -1,6 +1,5 @@
 import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
-import TicketLookup from "./components/TicketLookup";
-import RedeemTicket from "./components/RedeemTicket";
+import TestConsole from "./components/TestConsole";
 
 export default function App() {
   const account = useCurrentAccount();
@@ -14,7 +13,7 @@ export default function App() {
           alignItems: "center",
         }}
       >
-        <h2>Role 5 · Gate Check-in (MVP0)</h2>
+        <h2>Suistage Event Creation and Ticket Redeem</h2>
         <ConnectButton />
       </header>
 
@@ -30,9 +29,7 @@ export default function App() {
 
       <hr style={{ margin: "20px 0" }} />
 
-      <TicketLookup />
-      <hr style={{ margin: "20px 0" }} />
-      <RedeemTicket />
+      <TestConsole />
     </div>
   );
 }
