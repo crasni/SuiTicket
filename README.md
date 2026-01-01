@@ -1,57 +1,32 @@
-# SuiStage Role 5 — Gate Check-in (MVP0)
+# SuiStage Gate (MVP)
 
-A minimal “gate / check-in” dApp for the SuiStage ticketing project.
+A minimal ticketing prototype on Sui Testnet: create events, sell paid tickets, and redeem (check-in) with a gate capability.
 
-This repo focuses on **Role 5**: verifying and redeeming (check-in) tickets at the event gate.
-For MVP0, we prioritize a working frontend pipeline:
-- Connect wallet
-- Read on-chain objects (Ticket lookup)
-- Build & submit a transaction (CP1), then later swap to real `redeem` Move call (CP2)
+## What’s inside
 
-> Note: We **do NOT** implement x402 in this repo (explicitly out of scope).
+### Move package (`suistage_ticket_min`)
+- **Event**: minimal event object with organizer + name (and pricing fields in progress).
+- **GateCap**: capability required to redeem tickets for a specific event.
+- **Ticket**: ticket object with `used` flag.
+- Entry functions:
+  - `create_event(name, price, fee_bps, platform_addr)` → creates `Event` + `GateCap`
+  - `buy_ticket(event, payment_coin, recipient)` → paid mint/transfer
+  - `redeem(ticket, cap)` → marks `used=true` and emits `TicketRedeemed`
 
----
+### Frontend Test Console (React)
+A developer console to exercise the contract:
+- Faucet (testnet)
+- Create Event + auto-fill new IDs from objectChanges
+- Buy Ticket with on-chain payment (splits gas coin)
+- Redeem + status updates
+- Owned dashboard: lists Events / GateCaps / Tickets for the connected wallet
 
-## Tech Stack
+## Quick start
+1. Install deps and run the frontend
+2. Connect wallet (Sui Testnet)
+3. Faucet → Create Event → Buy Ticket → Redeem
+4. Use “Refresh Owned” or “Lookup” to verify ticket status
 
-- Frontend: React + TypeScript + Vite
-- Sui: `@mysten/dapp-kit` + Sui Client
-- State/query: `@tanstack/react-query`
-
----
-
-## Goals (MVP0)
-
-### MVP0 Scope
-- ✅ Wallet connect (dapp-kit)
-- ✅ Lookup a Sui object by object id (`getObject`, show owner/type/content)
-- ⏳ Submit a guaranteed-success transaction (CP1: self-transfer test)
-- ⏳ Integrate real ticket `redeem/use_ticket` Move call once the contract interface is finalized (CP2)
-
-### Out of scope (for now)
-- x402 payment flow
-- Sponsored transactions (Enoki sponsor)
-- Dynamic QR token (anti-screenshot)
-- Backend / DB (will come in later MVPs)
-
----
-
-## Project Status (Checkpoints)
-
-- [x] **CP0**: One network config + wallet connect + object lookup works
-- [ ] **CP1**: Tx sign+execute pipeline works (self-transfer test)
-- [ ] **CP2**: Real redeem succeeds on final ticket contract
-
----
-
-## Quick Start
-
-### Requirements
-- Node.js (>= 18)
-- pnpm (recommended)
-
-### Install & Run
-```bash
-pnpm install
-pnpm dev
-```
+## Notes
+- The package is frequently upgraded during development; update the `PACKAGE_ID` in the console when needed.
+- Kiosk / resale flow is planned but not integrated yet.
