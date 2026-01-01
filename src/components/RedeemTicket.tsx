@@ -5,61 +5,54 @@ import {
 } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
 import { DEFAULT_CHAIN } from "../config/network";
-import { redeemTarget } from "../config/contracts";
 
 export default function RedeemTicket() {
   const account = useCurrentAccount();
-  const [ticketId, setTicketId] = useState("");
+  const [objectId, setObjectId] = useState("");
   const [digest, setDigest] = useState("");
   const [lastError, setLastError] = useState("");
 
-  const canRun = useMemo(
-    () => !!account && ticketId.startsWith("0x") && ticketId.length > 10,
-    [account, ticketId],
-  );
+  const reason = useMemo(() => {
+    if (!account) return "not connected";
+    if (!objectId.startsWith("0x")) return "objectId must start with 0x";
+    if (objectId.length <= 10) return "objectId too short";
+    return "";
+  }, [account, objectId]);
+
+  const canRun = reason === "";
 
   const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
 
-  function buildRedeemTx() {
+  function buildSelfTransferTx() {
+    if (!account) throw new Error("No account connected");
     const tx = new Transaction();
-
-    // TODO: 這裡等你們合約定版：
-    // 假設 redeem(ticket: &mut Ticket, validator_cap: &ValidatorCap)
-    // 你就要傳入 object 參考，例如：
-    // tx.moveCall({
-    //   target: redeemTarget(),
-    //   arguments: [tx.object(ticketId), tx.object(validatorCapId)],
-    // });
-
-    tx.moveCall({
-      target: redeemTarget(),
-      arguments: [
-        // 先留空讓你填（合約定版後我們補）
-      ],
-    });
-
+    tx.transferObjects([tx.object(objectId)], tx.pure.address(account.address));
     return tx;
   }
 
   return (
     <section>
-      <h3>2) Redeem (Check-in)</h3>
+      <h3>2) CP1 — Transaction Pipeline Test (Self-transfer)</h3>
+
+      <div style={{ marginBottom: 8, opacity: 0.8 }}>
+        Account:{" "}
+        {account ? <code>{account.address}</code> : <b>NOT CONNECTED</b>}
+      </div>
 
       <div style={{ display: "flex", gap: 12 }}>
         <input
           style={{ flex: 1, padding: 8 }}
-          placeholder="Ticket object id (0x...)"
-          value={ticketId}
-          onChange={(e) => setTicketId(e.target.value)}
+          placeholder="Paste an object id with hasPublicTransfer: true"
+          value={objectId}
+          onChange={(e) => setObjectId(e.target.value.trim())}
         />
         <button
           disabled={!canRun || isPending}
           onClick={() => {
-            setLastError("");
             setDigest("");
+            setLastError("");
 
-            const tx = buildRedeemTx();
-
+            const tx = buildSelfTransferTx();
             signAndExecute(
               { transaction: tx, chain: DEFAULT_CHAIN },
               {
@@ -69,24 +62,25 @@ export default function RedeemTicket() {
             );
           }}
         >
-          {isPending ? "Redeeming..." : "Redeem"}
+          {isPending ? "Sending..." : "Send tx"}
         </button>
       </div>
+
+      {!canRun && (
+        <div style={{ marginTop: 8, color: "crimson" }}>
+          Disabled reason: <code>{reason}</code>
+        </div>
+      )}
 
       <div style={{ marginTop: 12 }}>
         {digest && (
           <div>
-            Success. Digest: <code>{digest}</code>
+            ✅ Success. Digest: <code>{digest}</code>
           </div>
         )}
         {lastError && (
-          <div style={{ color: "crimson" }}>Error: {lastError}</div>
+          <div style={{ color: "crimson" }}>❌ Error: {lastError}</div>
         )}
-      </div>
-
-      <div style={{ marginTop: 12, opacity: 0.7 }}>
-        目前 moveCall 的 arguments 還沒填；等你拿到合約 redeem 介面後，我們把
-        ticket/validatorCap/eventId 塞進去。
       </div>
     </section>
   );
