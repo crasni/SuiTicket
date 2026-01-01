@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 export type OwnedItem = {
   id: string;
@@ -25,7 +25,7 @@ const ui = {
     boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
     color: "rgba(255,255,255,0.92)",
     fontFamily:
-      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "Helvetica Neue", Arial',
+      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif',
   } as React.CSSProperties,
 
   headerRow: {
@@ -47,12 +47,6 @@ const ui = {
     fontSize: 12,
     opacity: 0.75,
     color: "rgba(255,255,255,0.70)",
-  } as React.CSSProperties,
-
-  grid2: {
-    display: "grid",
-    gridTemplateColumns: "1.2fr 1fr",
-    gap: 14,
   } as React.CSSProperties,
 
   card: {
@@ -182,6 +176,42 @@ function Pill({
   return <span style={ui.pill(tone)}>{children}</span>;
 }
 
+function clampInt(n: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+// allow: "", "0", "12", "12.", "12.3" ... up to 9 decimals
+function sanitizeSuiInput(v: string) {
+  const s = v.trim();
+  if (s === "") return "";
+  const m = s.match(/^(\d+)(\.(\d{0,9})?)?$/);
+  if (!m) return null; // invalid
+  const a = m[1];
+  const frac = m[3] ?? "";
+  return frac.length > 0 ? `${a}.${frac}` : m[2] ? `${a}.` : a;
+}
+
+function suiToMistSafe(s: string): bigint {
+  const [a, b = ""] = s.trim().split(".");
+  const frac = (b + "000000000").slice(0, 9);
+  const A = a === "" ? "0" : a;
+  return BigInt(A) * 1_000_000_000n + BigInt(frac);
+}
+
+function mistToSuiStr(m: bigint): string {
+  const sign = m < 0n ? "-" : "";
+  const x = m < 0n ? -m : m;
+  const a = x / 1_000_000_000n;
+  const b = x % 1_000_000_000n;
+  const frac = b.toString().padStart(9, "0").replace(/0+$/, "");
+  return sign + (frac ? `${a}.${frac}` : `${a}`);
+}
+
+function shortId(id: string) {
+  if (!id) return "";
+  return `${id.slice(0, 10)}…${id.slice(-8)}`;
+}
+
 function Field({
   label,
   value,
@@ -210,10 +240,12 @@ function IdRow({
   label,
   id,
   setId,
+  onCopy,
 }: {
   label: string;
   id: string;
   setId: (v: string) => void;
+  onCopy: (text: string, label?: string) => void;
 }) {
   return (
     <div>
@@ -234,15 +266,29 @@ function IdRow({
               target="_blank"
               rel="noreferrer"
               style={ui.link}
+              title={id}
             >
-              View on Suiscan
+              View on Suiscan ({shortId(id)})
             </a>
             <button
               style={ui.btn()}
-              onClick={() => navigator.clipboard.writeText(id)}
+              onClick={() => onCopy(id, "ID copied")}
               type="button"
             >
               Copy ID
+            </button>
+            <button
+              style={ui.btn()}
+              onClick={async () => {
+                try {
+                  const t = await navigator.clipboard.readText();
+                  setId(t.trim());
+                  onCopy("", "Pasted ✓");
+                } catch {}
+              }}
+              type="button"
+            >
+              Paste
             </button>
           </>
         ) : null}
@@ -256,11 +302,13 @@ function OwnedList({
   items,
   onPick,
   renderExtra,
+  onCopy,
 }: {
   title: string;
   items: OwnedItem[];
   onPick?: (id: string) => void;
   renderExtra?: (x: OwnedItem) => React.ReactNode;
+  onCopy: (id: string, label?: string) => void;
 }) {
   return (
     <div>
@@ -304,13 +352,14 @@ function OwnedList({
                   target="_blank"
                   rel="noreferrer"
                   style={{ ...ui.mono, textDecoration: "none" }}
+                  title={x.id}
                 >
-                  {x.id}
+                  {shortId(x.id)}
                 </a>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
                     style={ui.btn()}
-                    onClick={() => navigator.clipboard.writeText(x.id)}
+                    onClick={() => onCopy(x.id, "Copied")}
                     type="button"
                   >
                     Copy
@@ -339,18 +388,40 @@ function OwnedList({
   );
 }
 
-function shortId(id: string) {
-  if (!id) return "";
-  return `${id.slice(0, 10)}…${id.slice(-8)}`;
-}
-
 function TicketList({
   items,
   onPick,
+  onCopy,
 }: {
   items: OwnedItem[];
   onPick?: (id: string) => void;
+  onCopy: (id: string, label?: string) => void;
 }) {
+  const groups = useMemo(() => {
+    const mp = new Map<string, OwnedItem[]>();
+    for (const t of items) {
+      const k = t.extra || "(no event_id)";
+      if (!mp.has(k)) mp.set(k, []);
+      mp.get(k)!.push(t);
+    }
+    const arr = Array.from(mp.entries()).map(([eventId, ts]) => {
+      ts.sort((a, b) => {
+        const au = a.used ? 1 : 0;
+        const bu = b.used ? 1 : 0;
+        if (au !== bu) return au - bu; // unused first
+        return a.id.localeCompare(b.id);
+      });
+      return { eventId, tickets: ts };
+    });
+    arr.sort((g1, g2) => {
+      const u1 = g1.tickets.filter((t) => !t.used).length;
+      const u2 = g2.tickets.filter((t) => !t.used).length;
+      if (u1 !== u2) return u2 - u1;
+      return g1.eventId.localeCompare(g2.eventId);
+    });
+    return arr;
+  }, [items]);
+
   return (
     <div>
       <div
@@ -368,112 +439,167 @@ function TicketList({
       {items.length === 0 ? (
         <div style={{ fontSize: 12, opacity: 0.7 }}>(none)</div>
       ) : (
-        <div style={{ display: "grid", gap: 8 }}>
-          {/* header */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "2.2fr 0.8fr 2.2fr 1.4fr",
-              gap: 10,
-              padding: "8px 10px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(255,255,255,0.05)",
-              fontSize: 12,
-              fontWeight: 700,
-              color: "rgba(255,255,255,0.80)",
-            }}
-          >
-            <div>Ticket</div>
-            <div>Used</div>
-            <div>Event</div>
-            <div style={{ textAlign: "right" }}>Actions</div>
-          </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {groups.map((g) => {
+            const unused = g.tickets.filter((t) => !t.used).length;
+            const used = g.tickets.length - unused;
 
-          {/* rows */}
-          {items.map((x) => (
-            <div
-              key={x.id}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "2.2fr 0.8fr 2.2fr 1.4fr",
-                gap: 10,
-                alignItems: "center",
-                padding: "10px 10px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(0,0,0,0.25)",
-              }}
-            >
-              <a
-                href={suiscanObjectUrl(x.id)}
-                target="_blank"
-                rel="noreferrer"
-                style={{ ...ui.mono, textDecoration: "none" }}
-                title={x.id}
-              >
-                {shortId(x.id)}
-              </a>
-
-              <div>
-                <Pill tone={x.used ? "warn" : "ok"}>
-                  {x.used ? "true" : "false"}
-                </Pill>
-              </div>
-
-              <a
-                href={x.extra ? suiscanObjectUrl(x.extra) : undefined}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  ...ui.mono,
-                  textDecoration: "none",
-                  opacity: x.extra ? 1 : 0.6,
-                  pointerEvents: x.extra ? "auto" : "none",
-                }}
-                title={x.extra || ""}
-              >
-                {x.extra ? shortId(x.extra) : "(no event_id)"}
-              </a>
-
+            return (
               <div
+                key={g.eventId}
                 style={{
-                  display: "flex",
-                  gap: 8,
-                  justifyContent: "flex-end",
-                  flexWrap: "wrap",
+                  borderRadius: 14,
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  background: "rgba(0,0,0,0.18)",
+                  overflow: "hidden",
                 }}
               >
-                <button
-                  style={ui.btn()}
-                  onClick={() => navigator.clipboard.writeText(x.id)}
-                  type="button"
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    background: "rgba(255,255,255,0.05)",
+                    borderBottom: "1px solid rgba(255,255,255,0.10)",
+                  }}
                 >
-                  Copy
-                </button>
-                {onPick ? (
-                  <button
-                    style={ui.btn(true)}
-                    onClick={() => onPick(x.id)}
-                    type="button"
-                  >
-                    Use
-                  </button>
-                ) : null}
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 750,
+                        color: "rgba(255,255,255,0.88)",
+                      }}
+                    >
+                      Event:{" "}
+                      {g.eventId === "(no event_id)" ? (
+                        <span style={ui.mono}>(no event_id)</span>
+                      ) : (
+                        <a
+                          href={suiscanObjectUrl(g.eventId)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ ...ui.mono, textDecoration: "none" }}
+                          title={g.eventId}
+                        >
+                          {shortId(g.eventId)}
+                        </a>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.75 }}>
+                      {unused} unused · {used} used
+                    </div>
+                  </div>
+
+                  <Pill tone={unused > 0 ? "ok" : "info"}>
+                    {unused > 0 ? "Active" : "All used"}
+                  </Pill>
+                </div>
+
+                <div style={{ display: "grid" }}>
+                  {g.tickets.map((t) => (
+                    <div
+                      key={t.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1.2fr 0.6fr 1.2fr",
+                        gap: 10,
+                        alignItems: "center",
+                        padding: "10px 12px",
+                        borderTop: "1px solid rgba(255,255,255,0.08)",
+                      }}
+                    >
+                      <a
+                        href={suiscanObjectUrl(t.id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ ...ui.mono, textDecoration: "none" }}
+                        title={t.id}
+                      >
+                        {shortId(t.id)}
+                      </a>
+
+                      <div>
+                        <Pill tone={t.used ? "warn" : "ok"}>
+                          {t.used ? "used" : "unused"}
+                        </Pill>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          justifyContent: "flex-end",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <button
+                          style={ui.btn()}
+                          onClick={() => onCopy(t.id, "Ticket copied")}
+                          type="button"
+                        >
+                          Copy
+                        </button>
+                        {onPick ? (
+                          <button
+                            style={ui.btn(true)}
+                            onClick={() => onPick(t.id)}
+                            type="button"
+                          >
+                            Use
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
+function ActionBtn({
+  label,
+  onClick,
+  reason,
+  primary,
+}: {
+  label: string;
+  onClick: () => void;
+  reason?: string;
+  primary?: boolean;
+}) {
+  const disabled = Boolean(reason);
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        style={{
+          ...ui.btn(primary),
+          ...(disabled ? ui.btnDisabled : {}),
+        }}
+        type="button"
+        title={reason || ""}
+      >
+        {label}
+      </button>
+      <div style={{ fontSize: 11, opacity: 0.75, minHeight: 14 }}>
+        {reason || ""}
+      </div>
+    </div>
+  );
+}
+
 export type TestConsoleViewProps = {
-  // wallet
   address?: string;
 
-  // config
   packageId: string;
   setPackageId: (v: string) => void;
 
@@ -489,21 +615,27 @@ export type TestConsoleViewProps = {
   ticketId: string;
   setTicketId: (v: string) => void;
 
-  // derived state
+  priceSui: string;
+  setPriceSui: (v: string) => void;
+
+  feeBps: string;
+  setFeeBps: (v: string) => void;
+
+  platformAddr: string;
+  setPlatformAddr: (v: string) => void;
+
   isPending: boolean;
   status: string;
   lastDigest: string;
   ticketUsed: boolean | null;
 
-  // owned
   ownedEvents: OwnedItem[];
   ownedCaps: OwnedItem[];
   ownedTickets: OwnedItem[];
 
-  // actions
   onFaucet: () => void;
   onCreateEvent: () => void;
-  onMintTicket: () => void;
+  onBuyTicket: () => void;
   onRedeem: () => void;
   onLookupTicket: () => void;
   refreshOwned: () => void;
@@ -512,8 +644,87 @@ export type TestConsoleViewProps = {
 export default function TestConsoleView(p: TestConsoleViewProps) {
   const connected = Boolean(p.address);
 
+  // toast
+  const [toast, setToast] = useState<string>("");
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 1200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  async function copy(text: string, label = "Copied") {
+    if (label === "Pasted ✓") {
+      setToast(label);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setToast(`${label} ✓`);
+    } catch {
+      setToast("Copy failed");
+    }
+  }
+
+  // responsive
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const f = () => setIsNarrow(window.innerWidth < 900);
+    f();
+    window.addEventListener("resize", f);
+    return () => window.removeEventListener("resize", f);
+  }, []);
+
+  // payment preview (9)
+  const priceMist = p.priceSui ? suiToMistSafe(p.priceSui) : 0n;
+  const fee = clampInt(Number(p.feeBps || "0"), 0, 10000);
+  const feeMist = (priceMist * BigInt(fee)) / 10000n;
+  const orgMist = priceMist - feeMist;
+
+  // disabled reasons (2)
+  const pendingReason = p.isPending ? "Tx pending…" : "";
+  const needWallet = !connected ? "Connect wallet" : "";
+
+  const rFaucet = needWallet || pendingReason;
+  const rCreate = needWallet || pendingReason;
+  const rBuy =
+    needWallet || pendingReason || (!p.eventId ? "Need Event ID" : "");
+  const rRedeem =
+    needWallet ||
+    pendingReason ||
+    (!p.ticketId ? "Need Ticket ID" : "") ||
+    (!p.capId ? "Need GateCap ID" : "");
+  const rLookup = pendingReason || (!p.ticketId ? "Need Ticket ID" : "");
+  const rRefresh = needWallet || pendingReason;
+
   return (
     <div style={ui.page}>
+      {toast ? (
+        <div
+          style={{
+            position: "sticky",
+            top: 10,
+            zIndex: 50,
+            marginBottom: 10,
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
+          <div
+            style={{
+              padding: "8px 10px",
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(0,0,0,0.45)",
+              fontSize: 12,
+              color: "rgba(255,255,255,0.9)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            {toast}
+          </div>
+        </div>
+      ) : null}
+
       <div style={ui.headerRow}>
         <div>
           <h2 style={ui.h2}>SuiStage — Test Console</h2>
@@ -542,17 +753,23 @@ export default function TestConsoleView(p: TestConsoleViewProps) {
       </div>
 
       <div style={ui.stack}>
-        {/* ===== Top: Console ===== */}
-        <div style={ui.topGrid}>
+        <div
+          style={{
+            ...ui.topGrid,
+            gridTemplateColumns: isNarrow ? "1fr" : "1fr 1fr",
+          }}
+        >
           <div style={ui.stack}>
             {/* Config */}
             <div style={ui.card}>
               <div style={ui.cardTitle}>Config</div>
+
               <Field
                 label="Package ID"
                 value={p.packageId}
                 onChange={(v) => p.setPackageId(v.trim())}
               />
+
               <div style={{ marginTop: 10 }}>
                 <Field
                   label="Event Name"
@@ -560,18 +777,116 @@ export default function TestConsoleView(p: TestConsoleViewProps) {
                   onChange={p.setEventName}
                 />
               </div>
+
+              <div style={{ marginTop: 10 }}>
+                <Field
+                  label="Price (SUI)"
+                  value={p.priceSui}
+                  onChange={(v) => {
+                    const s = sanitizeSuiInput(v);
+                    if (s !== null) p.setPriceSui(s);
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <Field
+                  label="Platform fee (bps)"
+                  value={p.feeBps}
+                  onChange={(v) => {
+                    const digits = v.replace(/[^\d]/g, "");
+                    if (digits === "") return p.setFeeBps("");
+                    const n = clampInt(Number(digits), 0, 10000);
+                    p.setFeeBps(String(n));
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <Field
+                  label="Platform address"
+                  value={p.platformAddr}
+                  onChange={(v) => p.setPlatformAddr(v.trim())}
+                />
+              </div>
+
+              {/* payment preview */}
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  background: "rgba(0,0,0,0.22)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 750,
+                    marginBottom: 8,
+                    color: "rgba(255,255,255,0.88)",
+                  }}
+                >
+                  Payment preview
+                </div>
+
+                <div style={{ display: "grid", gap: 6, fontSize: 12 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <span>You pay</span>
+                    <span style={ui.mono}>{mistToSuiStr(priceMist)} SUI</span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <span>Platform fee ({fee} bps)</span>
+                    <span style={ui.mono}>{mistToSuiStr(feeMist)} SUI</span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <span>Organizer gets</span>
+                    <span style={ui.mono}>{mistToSuiStr(orgMist)} SUI</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* IDs */}
             <div style={ui.card}>
               <div style={ui.cardTitle}>IDs</div>
               <div style={{ display: "grid", gap: 12 }}>
-                <IdRow label="Event ID" id={p.eventId} setId={p.setEventId} />
-                <IdRow label="GateCap ID" id={p.capId} setId={p.setCapId} />
+                <IdRow
+                  label="Event ID"
+                  id={p.eventId}
+                  setId={p.setEventId}
+                  onCopy={copy}
+                />
+                <IdRow
+                  label="GateCap ID"
+                  id={p.capId}
+                  setId={p.setCapId}
+                  onCopy={copy}
+                />
                 <IdRow
                   label="Ticket ID"
                   id={p.ticketId}
                   setId={p.setTicketId}
+                  onCopy={copy}
                 />
               </div>
             </div>
@@ -582,67 +897,45 @@ export default function TestConsoleView(p: TestConsoleViewProps) {
             <div style={ui.card}>
               <div style={ui.cardTitle}>Actions</div>
 
-              <div style={ui.row}>
-                <button
+              <div
+                style={{
+                  display: "grid",
+                  gap: 10,
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                }}
+              >
+                <ActionBtn
+                  label="⛽ Faucet"
                   onClick={p.onFaucet}
-                  disabled={!connected || p.isPending}
-                  style={{
-                    ...ui.btn(),
-                    ...(!connected || p.isPending ? ui.btnDisabled : {}),
-                  }}
-                >
-                  ⛽ Faucet
-                </button>
-                <button
+                  reason={rFaucet}
+                />
+                <ActionBtn
+                  label="🏟️ Create Event + Cap"
                   onClick={p.onCreateEvent}
-                  disabled={!connected || p.isPending}
-                  style={{
-                    ...ui.btn(true),
-                    ...(!connected || p.isPending ? ui.btnDisabled : {}),
-                  }}
-                >
-                  🏟️ Create Event + Cap
-                </button>
-                <button
-                  onClick={p.onMintTicket}
-                  disabled={!connected || p.isPending}
-                  style={{
-                    ...ui.btn(true),
-                    ...(!connected || p.isPending ? ui.btnDisabled : {}),
-                  }}
-                >
-                  🎟️ Mint Ticket
-                </button>
-                <button
+                  reason={rCreate}
+                  primary
+                />
+                <ActionBtn
+                  label="🎟️ Buy Ticket"
+                  onClick={p.onBuyTicket}
+                  reason={rBuy}
+                  primary
+                />
+                <ActionBtn
+                  label="✅ Redeem"
                   onClick={p.onRedeem}
-                  disabled={!connected || p.isPending}
-                  style={{
-                    ...ui.btn(),
-                    ...(!connected || p.isPending ? ui.btnDisabled : {}),
-                  }}
-                >
-                  ✅ Redeem
-                </button>
-                <button
+                  reason={rRedeem}
+                />
+                <ActionBtn
+                  label="🔎 Lookup"
                   onClick={p.onLookupTicket}
-                  disabled={p.isPending}
-                  style={{
-                    ...ui.btn(),
-                    ...(p.isPending ? ui.btnDisabled : {}),
-                  }}
-                >
-                  🔎 Lookup
-                </button>
-                <button
+                  reason={rLookup}
+                />
+                <ActionBtn
+                  label="🔄 Refresh Owned"
                   onClick={p.refreshOwned}
-                  disabled={!connected || p.isPending}
-                  style={{
-                    ...ui.btn(),
-                    ...(!connected || p.isPending ? ui.btnDisabled : {}),
-                  }}
-                >
-                  🔄 Refresh Owned
-                </button>
+                  reason={rRefresh}
+                />
               </div>
 
               <div style={ui.hr} />
@@ -712,7 +1005,7 @@ export default function TestConsoleView(p: TestConsoleViewProps) {
           </div>
         </div>
 
-        {/* ===== Bottom: Owned ===== */}
+        {/* Owned */}
         <div style={ui.card}>
           <div
             style={{
@@ -742,6 +1035,7 @@ export default function TestConsoleView(p: TestConsoleViewProps) {
                   </>
                 ) : null
               }
+              onCopy={copy}
             />
 
             <OwnedList
@@ -755,11 +1049,13 @@ export default function TestConsoleView(p: TestConsoleViewProps) {
                   </>
                 ) : null
               }
+              onCopy={copy}
             />
 
             <TicketList
               items={p.ownedTickets}
               onPick={(id) => p.setTicketId(id)}
+              onCopy={copy}
             />
           </div>
         </div>
