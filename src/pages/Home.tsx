@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { Box, Button, Flex, Heading, Text } from "@radix-ui/themes";
@@ -6,24 +6,37 @@ import {
   MagnifyingGlassIcon,
   PlusIcon,
   IdCardIcon,
-  LightningBoltIcon,
 } from "@radix-ui/react-icons";
 import { toast } from "../lib/toast";
 import { setRole, type AppRole } from "../lib/role";
 
 const TAGLINE = "Tickets. Instantly.";
+const SUB = "Buy, create, and check-in with QR — without the blockchain noise.";
 
-function scrollTo(id: string) {
-  const el = document.getElementById(id);
-  el?.scrollIntoView({ behavior: "smooth", block: "start" });
+// Scrollytelling track: each step owns STEP_VH * viewportHeight pixels of scroll.
+const STEPS = 3;
+const STEP_VH = 0.65;
+
+function clampInt(x: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, x));
 }
 
 export default function Home() {
   const nav = useNavigate();
   const account = useCurrentAccount();
+  const isConnected = !!account?.address;
+
   const [showConnectHint, setShowConnectHint] = useState(false);
 
-  const isConnected = !!account?.address;
+  // Discrete state: only one active step at a time.
+  const [step, setStep] = useState<0 | 1 | 2>(0);
+
+  // For clean fade: keep the previous step around briefly, then drop it.
+  const [prevStep, setPrevStep] = useState<0 | 1 | 2 | null>(null);
+
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
 
   const roleCards = useMemo(
     () =>
@@ -31,7 +44,7 @@ export default function Home() {
         {
           role: "buyer" as const,
           title: "Buy a ticket",
-          desc: "Browse events and purchase with a clean, guided flow.",
+          desc: "Browse events and purchase in a clean, guided flow.",
           icon: <MagnifyingGlassIcon />,
           go: "/explore",
         },
@@ -45,7 +58,7 @@ export default function Home() {
         {
           role: "staff" as const,
           title: "Staff check-in",
-          desc: "Select event, scan QR, and issue one-time permits.",
+          desc: "Pick event, scan QR, and issue one-time permits.",
           icon: <IdCardIcon />,
           go: "/staff/events",
         },
@@ -58,17 +71,17 @@ export default function Home() {
       [
         {
           title: "Create",
-          desc: "Organizers publish an event and grant staff access for check-in.",
+          desc: "Publish an event and grant staff access.",
           icon: <PlusIcon />,
         },
         {
           title: "Buy",
-          desc: "Attendees purchase tickets and keep them in My Tickets with a clean QR view.",
+          desc: "Purchase tickets and keep them in My Tickets.",
           icon: <MagnifyingGlassIcon />,
         },
         {
           title: "Check-in",
-          desc: "Staff scans QR and issues a one-time permit for controlled, speedy entry.",
+          desc: "Scan QR and issue a one-time permit.",
           icon: <IdCardIcon />,
         },
       ] as const,
@@ -79,189 +92,332 @@ export default function Home() {
     if (!isConnected) {
       setShowConnectHint(true);
       toast.info("Connect wallet to continue");
-      scrollTo("st-connect");
+      scrollToStep(1);
       return;
     }
     setRole(role);
     nav(path);
   }
 
+  function easeInOutCubic(t: number) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  function getHeaderHeight(): number {
+    // your header is sticky at top; measure it if possible
+    const el =
+      document.querySelector<HTMLElement>('[data-sticky-header="1"]') ??
+      document.querySelector<HTMLElement>("header") ??
+      document.querySelector<HTMLElement>(".st-appHeader") ??
+      document.querySelector<HTMLElement>("body > div > div"); // fallback-ish
+
+    if (!el) return 64;
+    const h = Math.round(el.getBoundingClientRect().height);
+    return h > 0 ? h : 64;
+  }
+
+  function smoothScrollTo(targetY: number, durationMs: number) {
+    const startY = window.scrollY;
+    const delta = targetY - startY;
+    if (Math.abs(delta) < 2) return;
+
+    const start = performance.now();
+    function tick(now: number) {
+      const t = Math.min(1, (now - start) / durationMs);
+      const e = easeInOutCubic(t);
+      window.scrollTo(0, startY + delta * e);
+      if (t < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function scrollToStep(stepIndex: number) {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    const stepPx = window.innerHeight * STEP_VH;
+
+    // true document top of the scrollytelling track
+    const wrapTop = wrap.getBoundingClientRect().top + window.scrollY;
+
+    // IMPORTANT:
+    // land in the *middle* of the step-range, not at the boundary,
+    // otherwise you can end up still in the previous step due to rounding.
+    const bias = stepIndex === 0 ? 0.05 : 0.55; // hero near top, others centered
+    const target = wrapTop + (stepIndex + bias) * stepPx;
+
+    smoothScrollTo(target, 500); // longer animation
+  }
+
+  // Hide scrollbar only on Home (still scrollable)
+  useEffect(() => {
+    document.body.classList.add("st-homeBody", "st-hideScroll");
+    return () => {
+      document.body.classList.remove("st-homeBody", "st-hideScroll");
+    };
+  }, []);
+
+  // Threshold-based step switching (no continuous morphing)
+  useEffect(() => {
+    function compute() {
+      rafRef.current = null;
+
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+
+      const stepPx = window.innerHeight * STEP_VH;
+      const totalPx = stepPx * STEPS;
+
+      // IMPORTANT: do NOT subtract header height here
+      const wrapTop = wrap.getBoundingClientRect().top + window.scrollY;
+      const rel = window.scrollY - wrapTop;
+
+      // Ranges:
+      // [0, stepPx) -> 0 (Hero)
+      // [stepPx, 2*stepPx) -> 1 (Roles)
+      // [2*stepPx, 3*stepPx) -> 2 (How)
+      const next = clampInt(Math.floor(rel / stepPx), 0, STEPS - 1) as
+        | 0
+        | 1
+        | 2;
+
+      // Hard clamp at end (prevents weirdness if the user scrolls beyond track)
+      if (rel >= totalPx - 1) {
+        // stay at last
+        if (step !== 2) transitionTo(2);
+        return;
+      }
+
+      if (next !== step) transitionTo(next);
+    }
+
+    function transitionTo(next: 0 | 1 | 2) {
+      // cancel any pending cleanup
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+
+      // keep old visible as outgoing layer
+      setPrevStep(step);
+      setStep(next);
+
+      // drop outgoing after fade duration
+      timerRef.current = window.setTimeout(() => {
+        setPrevStep(null);
+        timerRef.current = null;
+      }, 280);
+    }
+
+    function onScroll() {
+      if (rafRef.current != null) return;
+      rafRef.current = window.requestAnimationFrame(compute);
+    }
+    function onResize() {
+      compute();
+    }
+
+    compute();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      if (rafRef.current != null) window.cancelAnimationFrame(rafRef.current);
+      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // Set wrapper height dynamically (no “magic 330vh” mismatch)
+  const wrapHeightVh = (STEPS * STEP_VH + 1) * 100; // e.g. 330vh
+
   return (
-    <div className="st-home">
-      {/* HERO */}
-      <section className="st-heroFull">
-        <div className="st-heroInner">
-          <Flex direction="column" gap="4">
-            <Flex direction="column" gap="2">
-              <Text as="div" className="st-kicker st-fadeUp st-delay1">
-                SuiTicket
-              </Text>
+    <div
+      ref={wrapRef}
+      className="st-storyWrap"
+      style={{ height: `${wrapHeightVh}vh` }}
+    >
+      <div className="st-stage">
+        {/* HERO */}
+        <div
+          className={[
+            "st-layer",
+            step === 0 ? "is-on" : "",
+            prevStep === 0 ? "is-off" : "",
+          ].join(" ")}
+        >
+          <div className="st-sectionInner">
+            <div className="st-heroPanel">
+              <Flex direction="column" gap="4">
+                <Text as="div" className="st-kicker">
+                  SuiTicket
+                </Text>
 
-              <Heading
-                as="h1"
-                size="9"
-                className="st-heroTitle st-fadeUp st-delay2"
-              >
-                {TAGLINE}
-              </Heading>
+                <Heading as="h1" size="9" className="st-heroTitle">
+                  {TAGLINE}
+                </Heading>
 
-              <Text
-                as="div"
-                size="3"
-                className="st-heroSub st-fadeUp st-delay3"
-                style={{ maxWidth: 920 }}
-              >
-                Buy, create, and check-in with QR — while keeping chain details
-                tucked away until you actually need them.
-              </Text>
-            </Flex>
+                <Text
+                  as="div"
+                  size="4"
+                  className="st-heroSub"
+                  style={{ maxWidth: 860 }}
+                >
+                  {SUB}
+                </Text>
 
-            <Flex gap="2" wrap="wrap" align="center">
-              <Button
-                size="3"
-                className="st-press"
-                onClick={() => scrollTo("st-roles")}
-              >
-                Get started
-              </Button>
+                <div style={{ height: 8 }} />
 
-              <Button
-                size="3"
-                variant="soft"
-                color="gray"
-                className="st-press"
-                onClick={() => choose("buyer", "/explore")}
-              >
-                Continue as buyer
-              </Button>
-            </Flex>
-
-            <Flex align="center" gap="2" style={{ marginTop: 2 }}>
-              <LightningBoltIcon />
-              <Text as="div" size="2" style={{ opacity: 0.68 }}>
-                Testnet demo — fast iteration mode.
-              </Text>
-            </Flex>
-          </Flex>
-        </div>
-      </section>
-
-      {/* ROLES */}
-      <section id="st-roles" className="st-sectionFull">
-        <div className="st-sectionHead">
-          <Heading as="h2" size="6">
-            Choose your role
-          </Heading>
-          <Text as="div" size="2" style={{ opacity: 0.75, maxWidth: 920 }}>
-            Your top bar adapts to what you choose. You can switch anytime.
-          </Text>
-        </div>
-
-        <div className="st-grid3">
-          {roleCards.map((c) => (
-            <Box
-              key={c.role}
-              className="st-tile2 st-cardHover st-press"
-              role="button"
-              tabIndex={0}
-              onClick={() => choose(c.role, c.go)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") choose(c.role, c.go);
-              }}
-            >
-              <Flex direction="column" gap="3">
-                <Flex align="center" gap="3">
-                  <div className="st-iconChip">{c.icon}</div>
-                  <Text as="div" size="4" weight="bold">
-                    {c.title}
-                  </Text>
+                <Flex gap="2" wrap="wrap" align="center">
+                  <Button
+                    size="3"
+                    className="st-press"
+                    onClick={() => scrollToStep(1)}
+                  >
+                    Get started
+                  </Button>
                 </Flex>
-
-                <Text
-                  as="div"
-                  size="2"
-                  style={{ opacity: 0.78, lineHeight: 1.7 }}
-                >
-                  {c.desc}
-                </Text>
-
-                <div className="st-tileHint" aria-hidden="true">
-                  →
-                </div>
-              </Flex>
-            </Box>
-          ))}
-        </div>
-
-        <div id="st-connect" />
-
-        {!isConnected ? (
-          <div
-            className="st-connectStrip"
-            data-attn={showConnectHint ? "1" : "0"}
-          >
-            <Flex align="center" justify="between" gap="3" wrap="wrap">
-              <Flex direction="column" gap="1">
-                <Text as="div" weight="bold" size="3">
-                  Connect wallet to continue
-                </Text>
-                <Text
-                  as="div"
-                  size="2"
-                  style={{ opacity: 0.72, lineHeight: 1.6 }}
-                >
-                  One-time step. After that, the app stays clean and focused.
-                </Text>
-              </Flex>
-              <ConnectButton />
-            </Flex>
-          </div>
-        ) : (
-          <Text as="div" size="2" style={{ opacity: 0.65 }}>
-            Connected as {account.address.slice(0, 6)}…
-            {account.address.slice(-4)}
-          </Text>
-        )}
-      </section>
-
-      {/* HOW IT WORKS (no numbers, clean, modern) */}
-      <section className="st-sectionFull">
-        <div className="st-sectionHead">
-          <Heading as="h2" size="6">
-            How it works
-          </Heading>
-          <Text as="div" size="2" style={{ opacity: 0.75, maxWidth: 920 }}>
-            Simple flow. Fast check-in. Details stay hidden unless you ask.
-          </Text>
-        </div>
-
-        <div className="st-grid3">
-          {howCards.map((c) => (
-            <div key={c.title} className="st-featureCard">
-              <Flex direction="column" gap="3">
-                <div className="st-iconChip st-iconChipSoft">{c.icon}</div>
-
-                <Text as="div" size="4" weight="bold">
-                  {c.title}
-                </Text>
-
-                <Text
-                  as="div"
-                  size="2"
-                  style={{ opacity: 0.78, lineHeight: 1.7 }}
-                >
-                  {c.desc}
-                </Text>
               </Flex>
             </div>
-          ))}
+          </div>
         </div>
 
-        <Text as="div" size="2" style={{ opacity: 0.6, marginTop: 14 }}>
-          Tip: IDs and object links live under Details — visible when needed,
-          hidden when not.
-        </Text>
-      </section>
+        {/* ROLES */}
+        <div
+          className={[
+            "st-layer",
+            step === 1 ? "is-on" : "",
+            prevStep === 1 ? "is-off" : "",
+          ].join(" ")}
+        >
+          <div className="st-sectionInner">
+            <Flex direction="column" gap="4">
+              <Heading as="h2" size="6">
+                Choose a role
+              </Heading>
+
+              <div className="st-grid3">
+                {roleCards.map((c) => (
+                  <Box
+                    key={c.role}
+                    className="st-tile2 st-cardHover st-press"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => choose(c.role, c.go)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ")
+                        choose(c.role, c.go);
+                    }}
+                  >
+                    <Flex direction="column" gap="3">
+                      <Flex align="center" gap="3">
+                        <div className="st-iconChip">{c.icon}</div>
+                        <Text as="div" size="4" weight="bold">
+                          {c.title}
+                        </Text>
+                      </Flex>
+
+                      <Text
+                        as="div"
+                        size="2"
+                        style={{ opacity: 0.78, lineHeight: 1.7 }}
+                      >
+                        {c.desc}
+                      </Text>
+                    </Flex>
+                  </Box>
+                ))}
+              </div>
+
+              {!isConnected ? (
+                <div
+                  className="st-connectStrip"
+                  data-attn={showConnectHint ? "1" : "0"}
+                >
+                  <Flex align="center" justify="between" gap="3" wrap="wrap">
+                    <Flex direction="column" gap="1">
+                      <Text as="div" weight="bold" size="3">
+                        Connect wallet
+                      </Text>
+                      <Text
+                        as="div"
+                        size="2"
+                        style={{ opacity: 0.72, lineHeight: 1.6 }}
+                      >
+                        Required to enter any flow.
+                      </Text>
+                    </Flex>
+                    <ConnectButton />
+                  </Flex>
+                </div>
+              ) : (
+                <Text as="div" size="2" style={{ opacity: 0.65 }}>
+                  Connected as {account.address.slice(0, 6)}…
+                  {account.address.slice(-4)}
+                </Text>
+              )}
+
+              <Flex justify="center">
+                <Button
+                  variant="ghost"
+                  color="gray"
+                  onClick={() => scrollToStep(2)}
+                >
+                  Next
+                </Button>
+              </Flex>
+            </Flex>
+          </div>
+        </div>
+
+        {/* HOW */}
+        <div
+          className={[
+            "st-layer",
+            step === 2 ? "is-on" : "",
+            prevStep === 2 ? "is-off" : "",
+          ].join(" ")}
+        >
+          <div className="st-sectionInner">
+            <Flex direction="column" gap="4">
+              <Heading as="h2" size="6">
+                How it works
+              </Heading>
+
+              <div className="st-grid3">
+                {howCards.map((c) => (
+                  <div key={c.title} className="st-featureCard">
+                    <Flex direction="column" gap="3">
+                      <div className="st-iconChip st-iconChipSoft">
+                        {c.icon}
+                      </div>
+                      <Text as="div" size="4" weight="bold">
+                        {c.title}
+                      </Text>
+                      <Text
+                        as="div"
+                        size="2"
+                        style={{ opacity: 0.78, lineHeight: 1.7 }}
+                      >
+                        {c.desc}
+                      </Text>
+                    </Flex>
+                  </div>
+                ))}
+              </div>
+
+              <Flex justify="center">
+                <Button
+                  variant="ghost"
+                  color="gray"
+                  onClick={() => scrollToStep(0)}
+                >
+                  Back to top
+                </Button>
+              </Flex>
+            </Flex>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

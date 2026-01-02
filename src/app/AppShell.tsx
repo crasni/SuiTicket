@@ -96,12 +96,13 @@ export default function AppShell() {
   return (
     <Box>
       <Box
+        data-sticky-header="1"
         style={{
           position: "sticky",
           top: 0,
           zIndex: 20,
           borderBottom: "1px solid var(--gray-a4)",
-          background: "var(--color-background)",
+          background: "rgba(0,0,0,0.35)",
           backdropFilter: "saturate(180%) blur(12px)",
         }}
       >

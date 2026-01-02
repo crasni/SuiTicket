@@ -1,45 +1,39 @@
-html,
-body {
-  height: 100%;
+:root {
+  --st-header-h: 64px;
 }
 
+/* SuiTicket blue gradient “world background” */
 body {
   margin: 0;
   background:
     radial-gradient(
-      1100px 620px at 20% 10%,
-      rgba(99, 102, 241, 0.18),
-      transparent 60%
-    ),
-    radial-gradient(
-      1000px 580px at 85% 0%,
-      rgba(16, 185, 129, 0.12),
-      transparent 60%
-    ),
-    radial-gradient(
-      1200px 650px at 50% 105%,
-      rgba(59, 130, 246, 0.1),
+      980px 560px at 50% -10%,
+      rgba(99, 102, 241, 0.34),
       transparent 62%
+    ),
+    radial-gradient(
+      860px 540px at 12% 12%,
+      rgba(59, 130, 246, 0.18),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 88% 20%,
+      rgba(99, 102, 241, 0.14),
+      transparent 65%
     ),
     var(--color-background);
 }
 
-/* Route transition */
-.st-page {
-  animation: stPageIn 180ms ease-out;
+/* Hide scrollbar ONLY on Home (still scrollable) */
+.st-hideScroll {
+  scrollbar-width: none;
 }
-@keyframes stPageIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.st-hideScroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
-/* Hover/press micro-interactions */
+/* Hover/press */
 .st-cardHover {
   transition:
     transform 160ms ease,
@@ -57,187 +51,154 @@ body {
   transform: scale(0.98);
 }
 
-/* Fade up */
-.st-fadeUp {
-  animation: stFadeUp 320ms ease-out both;
-}
-.st-delay1 {
-  animation-delay: 40ms;
-}
-.st-delay2 {
-  animation-delay: 90ms;
-}
-.st-delay3 {
-  animation-delay: 140ms;
+/* ===== Scrollytelling: wrapper provides scroll ranges; stage stays pinned ===== */
+
+.st-storyWrap {
+  /* 3 steps * 110vh => 330vh scroll range */
+  height: 330vh;
+  position: relative;
 }
 
-@keyframes stFadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ===== Home (big, modern, dark) ===== */
-
-.st-home {
-  display: flex;
-  flex-direction: column;
-  gap: 36px;
-}
-
-.st-heroFull {
-  border-radius: 28px;
-  border: 1px solid var(--gray-a4);
-  background:
-    radial-gradient(
-      1400px 720px at 10% 0%,
-      rgba(99, 102, 241, 0.22),
-      transparent 58%
-    ),
-    radial-gradient(
-      1400px 720px at 92% 0%,
-      rgba(16, 185, 129, 0.14),
-      transparent 60%
-    ),
-    radial-gradient(
-      1200px 760px at 50% 120%,
-      rgba(59, 130, 246, 0.12),
-      transparent 62%
-    ),
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.03),
-      rgba(255, 255, 255, 0.01)
-    );
+/* Stage pinned under the sticky header */
+.st-stage {
+  position: sticky;
+  top: var(--st-header-h);
+  height: calc(100vh - var(--st-header-h));
   overflow: hidden;
 }
 
-.st-heroInner {
-  padding: 76px 44px;
+/* Layers stack on top of each other */
+.st-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+
+  /* default: hidden */
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(2px);
+
+  pointer-events: none;
+
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease,
+    filter 260ms ease;
+}
+
+/* Current layer */
+.st-layer.is-on {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  pointer-events: auto;
+}
+
+/* Outgoing layer (briefly visible while fading out) */
+.st-layer.is-off {
+  opacity: 0;
+  transform: translateY(-6px);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+/* content placement */
+.st-sectionInner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* hero panel: keep your “title box” vibe */
+.st-heroPanel {
+  border-radius: 28px;
+  border: 1px solid var(--gray-a4);
+  padding: 44px;
+  background: linear-gradient(
+    180deg,
+    rgba(99, 102, 241, 0.22),
+    rgba(255, 255, 255, 0.03) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
 }
 
 @media (max-width: 980px) {
-  .st-heroInner {
-    padding: 56px 20px;
+  .st-sectionInner {
+    padding: 0 16px;
+  }
+  .st-heroPanel {
+    padding: 28px;
   }
 }
 
+/* Typography */
 .st-kicker {
-  opacity: 0.8;
+  opacity: 0.72;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-size: 12px;
 }
-
 .st-heroTitle {
   letter-spacing: -0.02em;
 }
-
 .st-heroSub {
-  opacity: 0.75;
-  line-height: 1.75;
+  opacity: 0.78;
+  line-height: 1.8;
 }
 
-.st-sectionFull {
-  padding: 4px 2px;
-}
-
-.st-sectionHead {
-  margin-bottom: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
+/* grids */
 .st-grid3 {
   display: grid;
-  gap: 14px;
+  gap: 18px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-
 @media (max-width: 980px) {
   .st-grid3 {
     grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 }
 
-/* Role tile */
+/* tiles / cards */
 .st-tile2 {
-  position: relative;
   border-radius: 22px;
-  padding: 22px;
+  padding: 26px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--gray-a4);
   cursor: pointer;
   user-select: none;
-  overflow: hidden;
 }
-
-.st-tile2::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: 22px;
-  pointer-events: none;
-  background: radial-gradient(
-    600px 220px at 20% 0%,
-    rgba(99, 102, 241, 0.1),
-    transparent 60%
-  );
-  opacity: 0.9;
-}
-
-.st-tile2 > * {
-  position: relative;
-  z-index: 1;
-}
-
-.st-tileHint {
-  position: absolute;
-  right: 16px;
-  bottom: 14px;
-  opacity: 0.35;
-  font-size: 18px;
-}
-
-/* Feature cards */
 .st-featureCard {
   border-radius: 22px;
-  padding: 22px;
+  padding: 26px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--gray-a4);
 }
 
-/* Icon chip */
+/* icon chip */
 .st-iconChip {
   width: 48px;
   height: 48px;
   border-radius: 18px;
   display: grid;
   place-items: center;
-  background: rgba(99, 102, 241, 0.22);
-  border: 1px solid rgba(99, 102, 241, 0.18);
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.14);
 }
-
 .st-iconChipSoft {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--gray-a4);
 }
 
-/* Connect strip */
+/* connect strip */
 .st-connectStrip {
-  margin-top: 12px;
+  margin-top: 10px;
   border-radius: 18px;
-  padding: 16px;
+  padding: 18px;
   border: 1px solid var(--gray-a4);
   background: rgba(255, 255, 255, 0.03);
 }
-
 .st-connectStrip[data-attn="1"] {
   background: rgba(234, 179, 8, 0.1);
   border-color: rgba(234, 179, 8, 0.22);
