@@ -5,6 +5,8 @@ import PageHeader from "../components/PageHeader";
 import { useCurrentAccount } from "@mysten/dapp-kit";
 import { useEvent } from "../hooks/useEvent";
 import { useTicketActions } from "../hooks/useTicketActions";
+import { toast } from "../lib/toast";
+import { copyText } from "../lib/clipboard";
 
 export default function EventDetail() {
   const { eventId } = useParams();
@@ -14,6 +16,8 @@ export default function EventDetail() {
 
   const [open, setOpen] = useState(false);
   const [recipient, setRecipient] = useState("");
+  const [showDetails, setShowDetails] = useState(false);
+  const [isBuying, setIsBuying] = useState(false);
 
   const recipientAddr = useMemo(() => {
     const r = recipient.trim();
@@ -24,16 +28,37 @@ export default function EventDetail() {
     if (!ev) return;
     if (!account?.address) return;
     if (!ev.sharedVersion) {
-      alert("Event is not shared (missing shared version).");
+      toast.error("Can't buy", "Event is not shared (missing shared version).");
       return;
     }
-    await actions.buyTicket({
-      eventId: ev.id,
-      eventSharedVersion: ev.sharedVersion,
-      priceMist: ev.priceMist,
-      recipient: recipientAddr,
-    });
-    setOpen(false);
+    try {
+      setIsBuying(true);
+      const res: any = await actions.buyTicket({
+        eventId: ev.id,
+        eventSharedVersion: ev.sharedVersion,
+        priceMist: ev.priceMist,
+        recipient: recipientAddr,
+      });
+
+      const digest = res?.digest as string | undefined;
+      const ok = res?.effects?.status?.status === "success";
+      if (!ok) {
+        const err = res?.effects?.status?.error;
+        toast.error("Purchase failed", err ?? "Transaction failed");
+        return;
+      }
+
+      toast.success(
+        "Purchase successful",
+        digest ? `Tx: ${digest}` : undefined,
+      );
+      setOpen(false);
+      setRecipient("");
+    } catch (e: any) {
+      toast.error("Purchase failed", e?.message ?? String(e));
+    } finally {
+      setIsBuying(false);
+    }
   }
 
   return (
@@ -72,12 +97,44 @@ export default function EventDetail() {
               Organizer: {ev.organizer}
             </Text>
 
-            <Text size="2" style={{ opacity: 0.7, marginTop: 8 }}>
-              Advanced details:
-            </Text>
-            <Text size="2" style={{ opacity: 0.7, wordBreak: "break-all" }}>
-              Event ID: {ev.id}
-            </Text>
+            <Flex align="center" justify="between" style={{ marginTop: 8 }}>
+              <Text size="2" style={{ opacity: 0.7 }}>
+                Details
+              </Text>
+              <Button
+                size="2"
+                variant="soft"
+                color="gray"
+                onClick={() => setShowDetails((x) => !x)}
+              >
+                {showDetails ? "Hide" : "Show"}
+              </Button>
+            </Flex>
+
+            {showDetails ? (
+              <Card>
+                <Flex direction="column" gap="2">
+                  <Text size="2" color="gray">
+                    Event
+                  </Text>
+                  <Text
+                    size="2"
+                    style={{ opacity: 0.85, wordBreak: "break-all" }}
+                  >
+                    <Text weight="medium">Event ID:</Text> {ev.id}
+                    <Button
+                      size="1"
+                      variant="soft"
+                      color="gray"
+                      style={{ marginLeft: 8 }}
+                      onClick={() => copyText(ev.id, "Event ID copied")}
+                    >
+                      Copy
+                    </Button>
+                  </Text>
+                </Flex>
+              </Card>
+            ) : null}
           </Flex>
         </Card>
       ) : null}
@@ -121,7 +178,10 @@ export default function EventDetail() {
               >
                 Cancel
               </Button>
-              <Button disabled={!ev || !account?.address} onClick={onBuy}>
+              <Button
+                disabled={!ev || !account?.address || isBuying}
+                onClick={onBuy}
+              >
                 Confirm Purchase
               </Button>
             </Flex>

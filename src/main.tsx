@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 
 import "@mysten/dapp-kit/dist/index.css";
 import "@radix-ui/themes/styles.css";
+import "./styles.css";
 
 import { Theme } from "@radix-ui/themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -15,7 +16,12 @@ const queryClient = new QueryClient();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Theme accentColor="indigo" grayColor="slate" radius="large">
+    <Theme
+      appearance="dark"
+      accentColor="indigo"
+      grayColor="slate"
+      radius="large"
+    >
       <QueryClientProvider client={queryClient}>
         <SuiClientProvider
           networks={networkConfig}

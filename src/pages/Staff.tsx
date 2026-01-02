@@ -1,5 +1,5 @@
-// src/pages/Staff.tsx
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button, Card, Flex, Text, TextField } from "@radix-ui/themes";
 import {
   useCurrentAccount,
@@ -10,12 +10,16 @@ import { Transaction } from "@mysten/sui/transactions";
 
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
+import QrScanModal from "../components/QrScanModal";
+import { copyText, readText } from "../lib/clipboard";
 import { CURRENT_PACKAGE_ID, TARGETS } from "../config/contracts";
+import { useEventNames } from "../hooks/useEventNames";
+import { toast } from "../lib/toast";
 
 type Lookup = {
   ok: boolean;
   reason?: string;
-  owner?: string; // attendee address
+  owner?: string;
   used?: boolean;
   type?: string;
   eventId?: string;
@@ -23,23 +27,42 @@ type Lookup = {
 
 type CapRow = { id: string; eventId?: string };
 
+const STAFF_SELECTED_CAP_KEY = "suiticket.staff.selectedCapId";
+
+function saveSelectedCapId(id: string) {
+  try {
+    localStorage.setItem(STAFF_SELECTED_CAP_KEY, id);
+  } catch {}
+}
+
+function loadSelectedCapId(): string {
+  try {
+    return localStorage.getItem(STAFF_SELECTED_CAP_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function suiscanObjectUrl(id: string) {
+  return `https://suiscan.xyz/testnet/object/${id}`;
+}
+
 function isAddressOwner(owner: any): owner is { AddressOwner: string } {
   return owner && typeof owner === "object" && "AddressOwner" in owner;
 }
 
-async function copyToClipboard(s: string) {
-  try {
-    await navigator.clipboard.writeText(s);
-  } catch {
-    // ignore
-  }
+function shortId(id?: string) {
+  if (!id) return "-";
+  const s = id.trim();
+  if (s.length <= 14) return s;
+  return `${s.slice(0, 6)}…${s.slice(-4)}`;
 }
 
 export default function Staff() {
   const account = useCurrentAccount();
   const client = useSuiClient();
+  const nav = useNavigate();
 
-  const [caps, setCaps] = useState<CapRow[]>([]);
   const [capId, setCapId] = useState("");
   const [ticketId, setTicketId] = useState("");
   const [lookup, setLookup] = useState<Lookup | null>(null);
@@ -48,29 +71,43 @@ export default function Staff() {
   const [permitId, setPermitId] = useState<string>("");
   const [lastDigest, setLastDigest] = useState<string>("");
 
-  const pkgPrefix = useMemo(() => `${CURRENT_PACKAGE_ID}::ticket::`, []);
+  const [caps, setCaps] = useState<CapRow[]>([]);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [capDetails, setCapDetails] = useState<Record<string, boolean>>({});
+  const [showResultDetails, setShowResultDetails] = useState(false);
 
-  const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction({
-    execute: async ({ bytes, signature }) => {
-      return await client.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: {
-          showRawEffects: true,
-          showEffects: true,
-          showObjectChanges: true,
-          showEvents: true,
-        },
-      });
-    },
-  });
+  const eventIdsForNames = useMemo(
+    () => [...caps.map((c) => c.eventId), lookup?.eventId],
+    [caps, lookup?.eventId],
+  );
+  const eventNameMap = useEventNames(eventIdsForNames);
+
+  const pkgPrefix = useMemo(() => `${CURRENT_PACKAGE_ID}::ticket::`, []);
+  const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
+
+  async function waitTx(digest: string) {
+    const txb = await (client as any).waitForTransactionBlock?.({
+      digest,
+      options: { showEffects: true, showObjectChanges: true },
+    });
+    if (txb) return txb;
+
+    for (let i = 0; i < 25; i++) {
+      try {
+        const t = await client.getTransactionBlock({
+          digest,
+          options: { showEffects: true, showObjectChanges: true },
+        });
+        const s = (t as any)?.effects?.status?.status;
+        if (s) return t;
+      } catch {}
+      await new Promise((r) => setTimeout(r, 250 + i * 50));
+    }
+    throw new Error("Timed out waiting for transaction result.");
+  }
 
   async function refreshCaps() {
-    if (!account?.address) {
-      setStatus("Please connect staff wallet first.");
-      return;
-    }
-    setStatus("Refreshing GateCaps...");
+    if (!account?.address) return;
 
     const all: any[] = [];
     let cursor: string | null | undefined = null;
@@ -90,22 +127,50 @@ export default function Staff() {
 
     const out: CapRow[] = [];
     for (const it of all) {
-      const id = (it.data as any)?.objectId;
+      const id = (it.data as any)?.objectId as string | undefined;
       const type = (it.data as any)?.type as string | undefined;
       if (!id || !type) continue;
-      if (!type.startsWith(pkgPrefix)) continue;
-      if (!type.endsWith("::GateCap")) continue;
+      if (!type.startsWith(pkgPrefix) || !type.endsWith("::GateCap")) continue;
 
       const fields = (it.data as any)?.content?.fields;
-      out.push({
-        id,
-        eventId: fields?.event_id ? String(fields.event_id) : undefined,
-      });
+      const eventId = fields?.event_id ? String(fields.event_id) : undefined;
+      out.push({ id, eventId });
     }
 
     setCaps(out);
-    setStatus(`✅ GateCaps refreshed: ${out.length}`);
-    if (!capId && out[0]?.id) setCapId(out[0].id);
+    const saved = loadSelectedCapId();
+    const hasSaved = saved && out.some((x) => x.id === saved);
+
+    if (!capId) {
+      if (hasSaved) setCapId(saved);
+      else if (out[0]?.id) setCapId(out[0].id);
+    } else {
+      const stillValid = out.some((x) => x.id === capId);
+      if (!stillValid) {
+        if (hasSaved) setCapId(saved);
+        else if (out[0]?.id) setCapId(out[0].id);
+      }
+    }
+  }
+
+  useEffect(() => {
+    refreshCaps().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account?.address]);
+
+  function onScanned(text: string) {
+    const clean = text.trim();
+    const id = clean.startsWith("ticket:")
+      ? clean.slice("ticket:".length)
+      : clean;
+
+    setTicketId(id.trim());
+    setLookup(null);
+    setShowResultDetails(false);
+    setPermitId("");
+    setLastDigest("");
+    toast.success("Scan success", "Ticket ID filled.");
+    setStatus("✅ Scanned. Click Lookup.");
   }
 
   async function onLookup() {
@@ -116,6 +181,7 @@ export default function Staff() {
     setPermitId("");
     setLastDigest("");
     setLookup(null);
+    setShowResultDetails(false);
 
     try {
       const obj = await client.getObject({
@@ -130,18 +196,15 @@ export default function Staff() {
       if (!type || !type.startsWith(pkgPrefix) || !type.endsWith("::Ticket")) {
         setLookup({
           ok: false,
-          reason: `Not a NEW Ticket. Got type=${type ?? "(none)"}`,
+          reason: `Not a Ticket from the CURRENT package. Got type=${type ?? "(none)"}`,
           type: type ?? "(none)",
         });
-        setStatus("❌ This is not a Ticket from the NEW package.");
+        setStatus("❌ This is not a Ticket from the CURRENT package.");
         return;
       }
 
       if (!isAddressOwner(owner)) {
-        setLookup({
-          ok: false,
-          reason: "Ticket is not AddressOwner (unexpected owner kind).",
-        });
+        setLookup({ ok: false, reason: "Ticket is not AddressOwner." });
         setStatus("❌ Ticket owner is not an address (unexpected).");
         return;
       }
@@ -194,7 +257,6 @@ export default function Staff() {
       target: TARGETS.issuePermit,
       arguments: [
         tx.object(capId.trim()),
-        // issue_permit expects ID; passing address-form often works for ID.
         tx.pure.address(ticketId.trim()),
         tx.pure.address(lookup.owner),
       ],
@@ -203,156 +265,418 @@ export default function Staff() {
     signAndExecute(
       { transaction: tx, chain: "sui:testnet" },
       {
-        onSuccess: (res) => {
+        onSuccess: async (res) => {
           setLastDigest(res.digest);
-          const changes = (res as any)?.objectChanges ?? [];
-          const pid = extractCreatedPermitId(changes);
-          if (pid) setPermitId(pid);
-          setStatus(
-            pid
-              ? "✅ Permit issued."
-              : "✅ Permit issued (permitId not auto-detected).",
-          );
+
+          try {
+            const txb = await waitTx(res.digest);
+            const changes = ((txb as any)?.objectChanges ?? []) as any[];
+            const pid = extractCreatedPermitId(changes);
+            if (pid) setPermitId(pid);
+            toast.success("Permit issued", pid ? `Permit: ${pid}` : undefined);
+            setStatus("✅ Permit issued.");
+          } catch (e: any) {
+            setStatus(
+              `✅ Permit issued, but couldn't load object changes: ${
+                e?.message ?? String(e)
+              }`,
+            );
+          }
         },
-        onError: (err) => setStatus(`❌ issue_permit failed: ${String(err)}`),
+        onError: (err) => {
+          toast.error("Issue permit failed", String(err));
+          setStatus(`❌ issue_permit failed: ${String(err)}`);
+        },
       },
     );
   }
 
-  // Auto-refresh caps when wallet connects
-  useEffect(() => {
-    if (!account?.address) return;
-    refreshCaps().catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.address]);
+  async function onPasteTicketId() {
+    const t = await readText();
+    if (!t) {
+      toast.error("Can't paste", "Clipboard is empty / not permitted.");
+      return setStatus("Clipboard is empty / not permitted.");
+    }
+    setTicketId(t.trim());
+    setLookup(null);
+    setShowResultDetails(false);
+    setPermitId("");
+    setLastDigest("");
+    toast.success("Pasted", "Ticket ID filled.");
+    setStatus("✅ Pasted from clipboard. Click Lookup.");
+  }
 
   return (
-    <Flex direction="column" gap="4">
-      <PageHeader
-        title="Staff"
-        subtitle="Pick a GateCap you own, paste Ticket ID, lookup owner, then issue a one-time permit."
+    <>
+      <QrScanModal
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onScan={onScanned}
+        title="Scan attendee QR"
+        hint="Point camera at attendee's ticket QR. We'll fill Ticket ID."
       />
 
-      <Card>
-        <Flex direction="column" gap="3">
-          <Flex align="center" justify="between" wrap="wrap" gap="2">
-            <Text weight="medium">My GateCaps</Text>
-            <Button
-              variant="soft"
-              onClick={refreshCaps}
-              disabled={isPending || !account?.address}
-            >
-              Refresh
-            </Button>
-          </Flex>
+      <Flex direction="column" gap="4">
+        <PageHeader
+          title="Staff"
+          subtitle="Pick a GateCap, scan/paste ticket ID, lookup, then issue a one-time permit."
+          right={
+            <>
+              <Button
+                size="2"
+                variant="soft"
+                color="gray"
+                onClick={() => nav("/staff/events")}
+              >
+                Manage events
+              </Button>
+              <Button
+                size="2"
+                variant="soft"
+                onClick={() => refreshCaps()}
+                disabled={!account?.address || isPending}
+              >
+                Refresh
+              </Button>
+            </>
+          }
+        />
 
-          {caps.length === 0 ? (
+        <Card>
+          <Flex direction="column" gap="3">
+            <Text weight="medium">Your GateCaps</Text>
+
+            {caps.length === 0 ? (
+              <EmptyState
+                title="No GateCap found"
+                desc="Connect the staff wallet that holds the GateCap."
+              />
+            ) : (
+              <Flex direction="column" gap="2">
+                {caps.map((c) => (
+                  <Card key={c.id}>
+                    <Flex align="center" justify="between" gap="3" wrap="wrap">
+                      <Flex
+                        direction="column"
+                        gap="1"
+                        style={{ minWidth: 260 }}
+                      >
+                        <Text
+                          size="2"
+                          style={{ wordBreak: "break-all", opacity: 0.85 }}
+                        >
+                          Cap: {shortId(c.id)}
+                        </Text>
+                        <Text
+                          size="2"
+                          style={{ wordBreak: "break-all", opacity: 0.7 }}
+                        >
+                          Event:{" "}
+                          {c.eventId
+                            ? (eventNameMap[c.eventId] ?? shortId(c.eventId))
+                            : "-"}
+                        </Text>
+                      </Flex>
+
+                      <Flex gap="2" wrap="wrap">
+                        <Button
+                          size="2"
+                          variant={capId === c.id ? "solid" : "soft"}
+                          onClick={() => {
+                            setCapId(c.id);
+                            saveSelectedCapId(c.id);
+                          }}
+                        >
+                          {capId === c.id ? "Using" : "Use"}
+                        </Button>
+
+                        <Button
+                          size="2"
+                          variant="soft"
+                          color="gray"
+                          onClick={() => copyText(c.id)}
+                        >
+                          Copy
+                        </Button>
+
+                        <Button
+                          size="2"
+                          variant="soft"
+                          color="gray"
+                          onClick={() =>
+                            setCapDetails((m) => ({
+                              ...m,
+                              [c.id]: !m[c.id],
+                            }))
+                          }
+                        >
+                          {capDetails[c.id] ? "Hide details" : "Details"}
+                        </Button>
+                      </Flex>
+                    </Flex>
+
+                    {capDetails[c.id] ? (
+                      <Card style={{ marginTop: 12 }}>
+                        <Flex direction="column" gap="2">
+                          <Text size="2" color="gray">
+                            GateCap details
+                          </Text>
+
+                          <Text
+                            size="2"
+                            style={{ wordBreak: "break-all", opacity: 0.85 }}
+                          >
+                            <Text weight="medium">Cap ID:</Text> {c.id}{" "}
+                            <Button
+                              size="1"
+                              variant="soft"
+                              color="gray"
+                              style={{ marginLeft: 8 }}
+                              onClick={() => copyText(c.id)}
+                            >
+                              Copy
+                            </Button>{" "}
+                            <a
+                              href={suiscanObjectUrl(c.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ marginLeft: 10 }}
+                            >
+                              Open
+                            </a>
+                          </Text>
+
+                          <Text
+                            size="2"
+                            style={{ wordBreak: "break-all", opacity: 0.85 }}
+                          >
+                            <Text weight="medium">Event ID:</Text>{" "}
+                            {c.eventId ?? "-"}
+                            {c.eventId ? (
+                              <>
+                                <Button
+                                  size="1"
+                                  variant="soft"
+                                  color="gray"
+                                  style={{ marginLeft: 8 }}
+                                  onClick={() => copyText(c.eventId!)}
+                                >
+                                  Copy
+                                </Button>
+                                <a
+                                  href={suiscanObjectUrl(c.eventId)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ marginLeft: 10 }}
+                                >
+                                  Open
+                                </a>
+                              </>
+                            ) : null}
+                          </Text>
+
+                          <Text size="2" style={{ opacity: 0.75 }}>
+                            <Text weight="medium">Owner:</Text>{" "}
+                            {account?.address ?? "-"}
+                            {account?.address ? (
+                              <Button
+                                size="1"
+                                variant="soft"
+                                color="gray"
+                                style={{ marginLeft: 8 }}
+                                onClick={() => copyText(account.address!)}
+                              >
+                                Copy
+                              </Button>
+                            ) : null}
+                          </Text>
+                        </Flex>
+                      </Card>
+                    ) : null}
+                  </Card>
+                ))}
+              </Flex>
+            )}
+          </Flex>
+        </Card>
+
+        <Card>
+          <Flex direction="column" gap="3">
+            <Text weight="medium">Issue permit</Text>
+
+            <Flex direction="column" gap="2">
+              <Text size="2" color="gray">
+                GateCap
+              </Text>
+              <Flex gap="2" wrap="wrap" align="center">
+                <TextField.Root
+                  placeholder="0x... GateCap object id"
+                  value={capId}
+                  onChange={(e) => setCapId(e.target.value)}
+                  style={{ flex: 1, minWidth: 320 }}
+                />
+                <Button
+                  size="2"
+                  variant="soft"
+                  color="gray"
+                  disabled={!capId.trim()}
+                  onClick={() => copyText(capId.trim())}
+                >
+                  Copy
+                </Button>
+              </Flex>
+            </Flex>
+
+            <Flex direction="column" gap="2">
+              <Text size="2" color="gray">
+                Ticket ID
+              </Text>
+              <Flex gap="2" wrap="wrap" align="center">
+                <TextField.Root
+                  placeholder="0x... Ticket object id"
+                  value={ticketId}
+                  onChange={(e) => setTicketId(e.target.value)}
+                  style={{ flex: 1, minWidth: 320 }}
+                />
+
+                <Button
+                  size="2"
+                  variant="soft"
+                  onClick={() => setScanOpen(true)}
+                  disabled={isPending}
+                >
+                  Scan QR
+                </Button>
+
+                <Button
+                  size="2"
+                  variant="soft"
+                  color="gray"
+                  onClick={onPasteTicketId}
+                  disabled={isPending}
+                >
+                  Paste
+                </Button>
+
+                <Button
+                  size="2"
+                  variant="soft"
+                  color="gray"
+                  onClick={() => copyText(ticketId.trim())}
+                  disabled={!ticketId.trim()}
+                >
+                  Copy
+                </Button>
+              </Flex>
+            </Flex>
+
+            <Flex gap="2" wrap="wrap" align="center">
+              <Button
+                size="2"
+                variant="soft"
+                onClick={onLookup}
+                disabled={isPending || !ticketId.trim()}
+              >
+                Lookup
+              </Button>
+              <Button
+                size="2"
+                onClick={onIssuePermit}
+                disabled={isPending || !lookup?.ok || !capId.trim()}
+              >
+                Issue Permit
+              </Button>
+            </Flex>
+
+            {status ? (
+              <Text size="2" style={{ whiteSpace: "pre-wrap", opacity: 0.85 }}>
+                {status}
+              </Text>
+            ) : null}
+          </Flex>
+        </Card>
+
+        <Flex direction="column" gap="2">
+          <Text weight="medium">Result</Text>
+
+          {!lookup ? (
             <EmptyState
-              title="No GateCaps found"
-              desc="If you created an event on the NEW package, you should see its GateCap here."
+              title="No lookup yet"
+              desc="Lookup a ticket to see owner + used status here."
             />
           ) : (
-            <Flex direction="column" gap="2">
-              {caps.map((c) => (
-                <Card key={c.id}>
-                  <Flex align="center" justify="between" gap="3" wrap="wrap">
-                    <Flex
-                      direction="column"
-                      gap="1"
-                      style={{ minWidth: 280, flex: 1 }}
-                    >
-                      <Text style={{ wordBreak: "break-all", opacity: 0.85 }}>
-                        {c.id}
-                      </Text>
-                      <Text
-                        size="2"
-                        color="gray"
-                        style={{ wordBreak: "break-all" }}
-                      >
-                        event_id: {c.eventId ?? "-"}
-                      </Text>
-                    </Flex>
-
-                    <Flex gap="2">
-                      <Button
-                        variant={capId === c.id ? "solid" : "soft"}
-                        onClick={() => setCapId(c.id)}
-                      >
-                        {capId === c.id ? "Using" : "Use"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        color="gray"
-                        onClick={() => copyToClipboard(c.id)}
-                      >
-                        Copy
-                      </Button>
-                    </Flex>
-                  </Flex>
-                </Card>
-              ))}
-            </Flex>
-          )}
-        </Flex>
-      </Card>
-
-      <Card>
-        <Flex direction="column" gap="3">
-          <Text weight="medium">Issue permit</Text>
-
-          <Text size="2" color="gray">
-            Using GateCap:
-          </Text>
-          <Text style={{ wordBreak: "break-all", opacity: 0.85 }}>
-            {capId || "(not selected)"}
-          </Text>
-
-          <Text size="2" color="gray">
-            Ticket ID (from attendee QR)
-          </Text>
-
-          <Flex gap="2" wrap="wrap">
-            <TextField.Root
-              placeholder="0x... Ticket object id"
-              value={ticketId}
-              onChange={(e) => setTicketId(e.target.value)}
-              style={{ flex: 1, minWidth: 320 }}
-            />
-
-            <Button
-              variant="soft"
-              onClick={onLookup}
-              disabled={isPending || !ticketId.trim()}
-            >
-              Lookup
-            </Button>
-
-            <Button onClick={onIssuePermit} disabled={isPending || !lookup?.ok}>
-              Issue
-            </Button>
-          </Flex>
-
-          {status ? (
-            <Text size="2" style={{ whiteSpace: "pre-wrap", opacity: 0.85 }}>
-              {status}
-            </Text>
-          ) : null}
-
-          {lookup?.ok ? (
             <Card>
               <Flex direction="column" gap="2">
                 <Text size="2" color="gray">
-                  Lookup result
+                  Ticket info
                 </Text>
+
                 <Text style={{ wordBreak: "break-all", opacity: 0.85 }}>
-                  Owner: {lookup.owner}
+                  <Text weight="medium">Owner:</Text> {lookup.owner ?? "-"}{" "}
+                  {lookup.owner ? (
+                    <Button
+                      size="1"
+                      variant="soft"
+                      color="gray"
+                      style={{ marginLeft: 8 }}
+                      onClick={() => copyText(lookup.owner!)}
+                    >
+                      Copy
+                    </Button>
+                  ) : null}
                 </Text>
-                <Text style={{ wordBreak: "break-all", opacity: 0.85 }}>
-                  Event: {lookup.eventId ?? "-"}
-                </Text>
+
                 <Text style={{ opacity: 0.85 }}>
-                  Used: {String(lookup.used ?? false)}
+                  <Text weight="medium">Used:</Text>{" "}
+                  {String(lookup.used ?? false)}
                 </Text>
+
+                <Flex align="center" justify="between" gap="2" wrap="wrap">
+                  <Text size="2" style={{ opacity: 0.7 }}>
+                    Event:{" "}
+                    {lookup.eventId
+                      ? (eventNameMap[lookup.eventId] ??
+                        shortId(lookup.eventId))
+                      : "-"}
+                  </Text>
+                  {lookup.eventId ? (
+                    <Button
+                      size="2"
+                      variant="soft"
+                      color="gray"
+                      onClick={() => setShowResultDetails((x) => !x)}
+                    >
+                      {showResultDetails ? "Hide details" : "Details"}
+                    </Button>
+                  ) : null}
+                </Flex>
+
+                {showResultDetails && lookup.eventId ? (
+                  <Card>
+                    <Flex direction="column" gap="2">
+                      <Text size="2" color="gray">
+                        Event details
+                      </Text>
+                      <Text
+                        size="2"
+                        style={{ wordBreak: "break-all", opacity: 0.85 }}
+                      >
+                        <Text weight="medium">Event ID:</Text> {lookup.eventId}
+                        <Button
+                          size="1"
+                          variant="soft"
+                          color="gray"
+                          style={{ marginLeft: 8 }}
+                          onClick={() =>
+                            copyText(lookup.eventId!, "Event ID copied")
+                          }
+                        >
+                          Copy
+                        </Button>
+                      </Text>
+                    </Flex>
+                  </Card>
+                ) : null}
 
                 {permitId ? (
                   <>
@@ -360,12 +684,20 @@ export default function Staff() {
                       Permit created
                     </Text>
                     <Text style={{ wordBreak: "break-all", opacity: 0.85 }}>
-                      Permit ID: {permitId}
+                      Permit ID: {permitId}{" "}
+                      <Button
+                        size="1"
+                        variant="soft"
+                        color="gray"
+                        style={{ marginLeft: 8 }}
+                        onClick={() => copyText(permitId)}
+                      >
+                        Copy
+                      </Button>
                     </Text>
                     <Text
                       size="2"
-                      color="gray"
-                      style={{ wordBreak: "break-all" }}
+                      style={{ wordBreak: "break-all", opacity: 0.75 }}
                     >
                       Tx: {lastDigest}
                     </Text>
@@ -373,9 +705,9 @@ export default function Staff() {
                 ) : null}
               </Flex>
             </Card>
-          ) : null}
+          )}
         </Flex>
-      </Card>
-    </Flex>
+      </Flex>
+    </>
   );
 }

@@ -14,8 +14,11 @@ export default function CreateEvent() {
   const [platform, setPlatform] = useState(PLATFORM_DUMMY);
 
   const [status, setStatus] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
   async function onCreate() {
+    if (isCreating) return;
+    setIsCreating(true);
     setStatus("Creating event…");
     try {
       const res = await actions.createEvent({
@@ -27,6 +30,8 @@ export default function CreateEvent() {
       setStatus(`✅ Created. digest=${res.digest}`);
     } catch (e: any) {
       setStatus(`❌ Create failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setIsCreating(false);
     }
   }
 
@@ -79,8 +84,10 @@ export default function CreateEvent() {
             />
           </Flex>
 
-          <Flex gap="2" justify="end">
-            <Button onClick={onCreate}>Create</Button>
+          <Flex gap="2" justify="end" wrap="wrap">
+            <Button size="2" onClick={onCreate} disabled={isCreating}>
+              {isCreating ? "Creating…" : "Create"}
+            </Button>
           </Flex>
 
           {status ? (
