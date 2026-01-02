@@ -23,7 +23,7 @@ export default function App() {
             Connected: <code>{account.address}</code>
           </>
         ) : (
-          <>請先連錢包</>
+          <>Please connect wallet first</>
         )}
       </div>
 

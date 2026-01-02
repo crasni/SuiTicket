@@ -14,7 +14,11 @@ module suistage_ticket_min::ticket {
     const E_INSUFFICIENT_PAYMENT: u64 = 2;
     const E_FEE_TOO_HIGH: u64 = 3; // fee_bps > 10000
 
-    /// Event object (now includes price + fee + platform)
+    // Redeem-permit related
+    const E_WRONG_PERMIT_TICKET: u64 = 4;
+    const E_NOT_INTENDED: u64 = 5;
+
+    /// Event object (shared)
     public struct Event has key {
         id: UID,
         organizer: address,
@@ -25,27 +29,39 @@ module suistage_ticket_min::ticket {
         platform: address, // platform receiver (dummy for now)
     }
 
-    /// Gate capability: holder can redeem tickets for this event
+    /// Gate capability: holder can issue redeem permits for this event
     public struct GateCap has key {
         id: UID,
         event_id: ID,
     }
 
-    /// Ticket object
+    /// Ticket object (owned by holder)
     public struct Ticket has key, store {
         id: UID,
         event_id: ID,
         used: bool,
     }
 
+    /// One-time redeem permit:
+    /// - mintable only by staff who has GateCap
+    /// - transferred to ticket holder
+    /// - consumed & deleted when redeeming
+    public struct RedeemPermit has key, drop {
+        id: UID,
+        ticket_id: ID,
+        event_id: ID,
+        issuer: address,     // staff who issued this permit (for audit)
+        intended: address,   // bound to a specific holder (optional but recommended)
+    }
+
     /// Event emitted when a ticket is redeemed
     public struct TicketRedeemed has copy, drop {
         ticket_id: ID,
         event_id: ID,
-        redeemer: address,
+        redeemer: address,   // we will emit staff issuer for correctness
     }
 
-    /// Create Event + GateCap and transfer both to organizer
+    /// Create Event + GateCap and transfer cap to organizer, share event
     public entry fun create_event(
         name: vector<u8>,
         price_mist: u64,
@@ -72,7 +88,10 @@ module suistage_ticket_min::ticket {
             event_id: ev_id,
         };
 
-        transfer::transfer(ev, organizer);
+        // Event must be shared so anyone can reference it in buy_ticket
+        transfer::share_object(ev);
+
+        // GateCap remains owned; whoever holds it can issue permits
         transfer::transfer(cap, organizer);
     }
 
@@ -103,6 +122,7 @@ module suistage_ticket_min::ticket {
         };
 
         // fee = price * fee_bps / 10000
+        // (MVP note: this can overflow on extreme price; fine for typical values)
         let fee_u64 = (price * (event.fee_bps as u64)) / 10000;
 
         if (fee_u64 > 0) {
@@ -127,7 +147,55 @@ module suistage_ticket_min::ticket {
         transfer::transfer(cap, recipient);
     }
 
-    /// Redeem (check-in): requires GateCap for the same event
+    /// Staff issues a one-time permit for a specific ticket, transferring it to the holder.
+    /// This tx MUST be signed by the staff (because it uses GateCap).
+    public entry fun issue_permit(
+        cap: &GateCap,
+        ticket_id: ID,
+        recipient: address,
+        ctx: &mut TxContext
+    ) {
+        let p = RedeemPermit {
+            id: object::new(ctx),
+            ticket_id,
+            event_id: cap.event_id,
+            issuer: tx_context::sender(ctx),
+            intended: recipient,
+        };
+        transfer::transfer(p, recipient);
+    }
+
+    /// Holder redeems by consuming the permit.
+    /// This tx only requires holder signature because it uses holder-owned Ticket + Permit.
+    public entry fun redeem_with_permit(
+        ticket: &mut Ticket,
+        permit: RedeemPermit,
+        ctx: &mut TxContext
+    ) {
+        assert!(!ticket.used, E_ALREADY_USED);
+
+        // Permit must match the same event and this exact ticket object
+        assert!(ticket.event_id == permit.event_id, E_WRONG_EVENT);
+        assert!(object::id(ticket) == permit.ticket_id, E_WRONG_PERMIT_TICKET);
+
+        // Optional but recommended: permit bound to the intended holder
+        assert!(tx_context::sender(ctx) == permit.intended, E_NOT_INTENDED);
+
+        ticket.used = true;
+
+        // Emit "redeemer" as staff issuer (not tx sender), since holder submits this tx
+        event::emit(TicketRedeemed {
+            ticket_id: object::id(ticket),
+            event_id: ticket.event_id,
+            redeemer: permit.issuer,
+        });
+
+        // One-time: delete permit object
+        object::delete(permit.id);
+    }
+
+    /// (Optional) Keep the original dual-sign redeem if you still want it available:
+    /// Requires both holder (Ticket owner) and staff (GateCap owner) signatures.
     public entry fun redeem(ticket: &mut Ticket, cap: &GateCap, ctx: &mut TxContext) {
         assert!(!ticket.used, E_ALREADY_USED);
         assert!(ticket.event_id == cap.event_id, E_WRONG_EVENT);

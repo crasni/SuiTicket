@@ -17,8 +17,7 @@ const PLATFORM_DUMMY =
   "0xe7db9021ff53de89cd3c527fb2911be32eb22c3ec2a8b77e1ccb47ab1b0afc40";
 
 // === Your deployed package  ===
-const DEFAULT_PACKAGE_ID =
-  "0xe01cdc2f8745ead1192580fa23b9e1b4d12169f9283a31936ae72f8f04bba06b";
+import { DEFAULT_PACKAGE_ID } from "../config/contracts";
 
 type ObjChange = {
   type: string;
@@ -116,7 +115,7 @@ export default function TestConsle() {
 
   async function refreshOwned() {
     if (!account?.address) {
-      setStatus("請先 connect wallet");
+      setStatus("Please connect wallet first");
       return;
     }
     setStatus("Refreshing owned objects...");
@@ -334,7 +333,7 @@ export default function TestConsle() {
     );
   }
 
-  function onBuyTicket() {
+  async function onBuyTicket() {
     if (!account?.address) {
       setStatus("Please connect your wallet first");
       return;
@@ -354,10 +353,25 @@ export default function TestConsle() {
 
     const [payCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(priceMist)]);
 
+    const obj = await client.getObject({
+      id: eventId,
+      options: { showOwner: true },
+    });
+    const owner: any = obj.data?.owner;
+
+    const eventArg =
+      owner && typeof owner === "object" && "Shared" in owner
+        ? tx.sharedObjectRef({
+            objectId: eventId,
+            initialSharedVersion: owner.Shared.initial_shared_version,
+            mutable: false,
+          })
+        : tx.object(eventId);
+
     tx.moveCall({
       target: targets.buyTicket,
       arguments: [
-        tx.object(eventId),
+        tx.object(eventArg),
         payCoin,
         tx.pure.address(account.address),
       ],
