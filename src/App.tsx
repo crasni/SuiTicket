@@ -1,35 +1,28 @@
-import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
-import TestConsole from "./components/TestConsole";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+
+import AppShell from "./app/AppShell";
+import Explore from "./pages/Explore";
+import EventDetail from "./pages/EventDetail";
+import MyTickets from "./pages/MyTickets";
+import Staff from "./pages/Staff";
+import CreateEvent from "./pages/CreateEvent";
+import DebugConsole from "./pages/DebugConsole";
 
 export default function App() {
-  const account = useCurrentAccount();
-
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: 24 }}>
-      <header
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <h2>Suistage Event Creation and Ticket Redeem</h2>
-        <ConnectButton />
-      </header>
+    <BrowserRouter>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<Explore />} />
+          <Route path="/event/:eventId" element={<EventDetail />} />
+          <Route path="/tickets" element={<MyTickets />} />
+          <Route path="/staff" element={<Staff />} />
+          <Route path="/create" element={<CreateEvent />} />
+          <Route path="/debug" element={<DebugConsole />} />
+        </Route>
 
-      <div style={{ marginTop: 12, opacity: 0.8 }}>
-        {account ? (
-          <>
-            Connected: <code>{account.address}</code>
-          </>
-        ) : (
-          <>Please connect wallet first</>
-        )}
-      </div>
-
-      <hr style={{ margin: "20px 0" }} />
-
-      <TestConsole />
-    </div>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

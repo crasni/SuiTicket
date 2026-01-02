@@ -17,7 +17,7 @@ const PLATFORM_DUMMY =
   "0xe7db9021ff53de89cd3c527fb2911be32eb22c3ec2a8b77e1ccb47ab1b0afc40";
 
 // === Your deployed package  ===
-import { DEFAULT_PACKAGE_ID } from "../config/contracts";
+import { LEGACY_PACKAGE_ID } from "../config/contracts";
 
 type ObjChange = {
   type: string;
@@ -50,11 +50,18 @@ function suiToMist(s: string): bigint {
   return BigInt(a || "0") * 1_000_000_000n + BigInt(frac);
 }
 
-export default function TestConsle() {
+export default function TestConsole({
+  packageId: initialPackageId,
+}: {
+  packageId: string;
+}) {
   const account = useCurrentAccount();
   const client = useSuiClient();
 
-  const [packageId, setPackageId] = useState(DEFAULT_PACKAGE_ID);
+  const [selectedPackageId, setSelectedPackageId] = useState(initialPackageId);
+  useEffect(() => {
+    setSelectedPackageId(initialPackageId);
+  }, [initialPackageId]);
 
   const [eventName, setEventName] = useState("Enter Your Event Name");
   const [eventId, setEventId] = useState<string>("");
@@ -74,13 +81,13 @@ export default function TestConsle() {
   const [platformAddr, setPlatformAddr] = useState(PLATFORM_DUMMY);
 
   const targets = useMemo(() => {
-    const base = `${packageId}::ticket`;
+    const base = `${selectedPackageId}::ticket`;
     return {
       createEvent: `${base}::create_event`,
       buyTicket: `${base}::buy_ticket`,
       redeem: `${base}::redeem`,
     };
-  }, [packageId]);
+  }, [selectedPackageId]);
 
   const { mutate: signAndExecuteTransaction, isPending } =
     useSignAndExecuteTransaction({
@@ -137,7 +144,7 @@ export default function TestConsle() {
       cursor = page.nextCursor;
     }
 
-    const pkgPrefix = `${packageId}::ticket::`;
+    const pkgPrefix = `${selectedPackageId}::ticket::`;
 
     const evs: OwnedItem[] = [];
     const caps: OwnedItem[] = [];
@@ -370,11 +377,7 @@ export default function TestConsle() {
 
     tx.moveCall({
       target: targets.buyTicket,
-      arguments: [
-        tx.object(eventArg),
-        payCoin,
-        tx.pure.address(account.address),
-      ],
+      arguments: [eventArg, payCoin, tx.pure.address(account.address)],
     });
 
     signAndExecuteTransaction(
@@ -512,13 +515,13 @@ export default function TestConsle() {
     if (!account?.address) return;
     refreshOwnedWithRetry(2).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account?.address, packageId]);
+  }, [account?.address, selectedPackageId]);
 
   return (
     <TestConsoleView
       address={account?.address}
-      packageId={packageId}
-      setPackageId={setPackageId}
+      packageId={selectedPackageId}
+      setPackageId={setSelectedPackageId}
       eventName={eventName}
       setEventName={setEventName}
       eventId={eventId}
