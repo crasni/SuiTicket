@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import AppShell from "./app/AppShell";
 import Home from "./pages/Home";
+import Auth from "./pages/Auth";
 import Explore from "./pages/Explore";
 import EventDetail from "./pages/EventDetail";
 import MyTickets from "./pages/MyTickets";
@@ -15,6 +16,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/auth" element={<Auth />} />
         <Route element={<AppShell />}>
           <Route index element={<Home />} />
           <Route path="/dashboard" element={<Dashboard />} />

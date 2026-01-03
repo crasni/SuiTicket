@@ -9,6 +9,8 @@ import {
 } from "@radix-ui/react-icons";
 import { toast } from "../lib/toast";
 import { setRole, type AppRole } from "../lib/role";
+import { isEnokiWallet, isGoogleWallet } from "@mysten/enoki";
+import CopyPill from "../components/CopyPill";
 
 const TAGLINE = "Tickets. Instantly.";
 const SUB = "Buy, create, and check-in with QR — without the blockchain noise.";
@@ -58,6 +60,16 @@ export default function Home() {
   const [showConnectHint, setShowConnectHint] = useState(false);
   const rolesAnchorRef = useRef<HTMLDivElement | null>(null);
   const howAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  const [pendingRole, setPendingRole] = useState<AppRole | null>(null);
+
+  // ✅ After connect, continue to dashboard using the role user clicked.
+  useEffect(() => {
+    if (!isConnected || !pendingRole) return;
+    setRole(pendingRole);
+    nav("/dashboard");
+    setPendingRole(null);
+  }, [isConnected, pendingRole, nav]);
 
   const roleCards = useMemo(
     () =>
@@ -115,11 +127,15 @@ export default function Home() {
 
   function choose(role: AppRole) {
     if (!isConnected) {
+      setPendingRole(role); // ✅ THIS is the key line
       setShowConnectHint(true);
-      toast.info("Connect wallet to continue");
+
+      toast.info("Connect wallet / Login to continue");
+
       scrollTo(rolesAnchorRef.current);
       return;
     }
+
     setRole(role);
     nav("/dashboard");
   }
@@ -231,14 +247,33 @@ export default function Home() {
                     Required to enter any flow.
                   </Text>
                 </Flex>
-                <ConnectButton />
+
+                <ConnectButton
+                  connectText="Connect / Login"
+                  walletFilter={(w) =>
+                    isEnokiWallet(w) || w.name === "Slush" || true
+                  }
+                />
               </Flex>
             </div>
           ) : (
-            <Text as="div" size="2" style={{ opacity: 0.65 }}>
-              Connected as {account.address.slice(0, 6)}…
-              {account.address.slice(-4)}
-            </Text>
+            <Flex align="center" gap="2" wrap="wrap">
+              <Text
+                as="div"
+                size="2"
+                style={{ opacity: 0.65 }}
+                title={account.address} // hover shows full address
+              >
+                Connected as {account.address.slice(0, 6)}…
+                {account.address.slice(-4)}
+              </Text>
+
+              <CopyPill
+                value={account.address}
+                label="Copy address"
+                toastMsg="Address copied"
+              />
+            </Flex>
           )}
         </Flex>
       </Reveal>

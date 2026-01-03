@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SuiClientProvider, WalletProvider } from "@mysten/dapp-kit";
 
 import App from "./App";
+import RegisterEnokiWallets from "./app/RegisterEnokiWallets";
 import { networkConfig, DEFAULT_NETWORK } from "./config/network";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           defaultNetwork={DEFAULT_NETWORK}
         >
           <WalletProvider>
+            <RegisterEnokiWallets />
             <App />
           </WalletProvider>
         </SuiClientProvider>

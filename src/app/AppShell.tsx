@@ -8,6 +8,7 @@ import {
 } from "react-router-dom";
 import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { Box, Button, Card, Container, Flex, Text } from "@radix-ui/themes";
+import { isEnokiWallet, isGoogleWallet } from "@mysten/enoki";
 import Toaster from "../components/Toaster";
 import {
   clearRole,
@@ -66,12 +67,12 @@ export default function AppShell() {
   // Wallet + role selection gating (separate from requiredRole).
   const requiresWallet = useMemo(() => {
     // only Home is public
-    return location.pathname !== "/";
+    return location.pathname !== "/" && !location.pathname.startsWith("/auth");
   }, [location.pathname]);
 
   const requiresRoleSelection = useMemo(() => {
     // app pages expect a role chosen (Home is where you pick it)
-    return location.pathname !== "/";
+    return location.pathname !== "/" && !location.pathname.startsWith("/auth");
   }, [location.pathname]);
 
   const roleLabel = useMemo(() => {
@@ -163,7 +164,12 @@ export default function AppShell() {
               ) : null}
             </Flex>
 
-            <ConnectButton />
+            <ConnectButton
+              connectText="Connect / Login"
+              walletFilter={(w) =>
+                isEnokiWallet(w) || w.name === "Slush" || true
+              }
+            />
           </Flex>
         </Container>
       </Box>
@@ -181,7 +187,12 @@ export default function AppShell() {
                   choose your role on the home page.
                 </Text>
                 <Flex gap="2" wrap="wrap" align="center">
-                  <ConnectButton />
+                  <ConnectButton
+                    connectText="Connect / Login"
+                    walletFilter={(w) =>
+                      isEnokiWallet(w) || w.name === "Slush" || true
+                    }
+                  />
                   <Button variant="soft" color="gray" onClick={() => nav("/")}>
                     Back Home
                   </Button>
