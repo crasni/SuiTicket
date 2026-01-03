@@ -8,7 +8,7 @@ import {
 } from "react-router-dom";
 import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { Box, Button, Card, Container, Flex, Text } from "@radix-ui/themes";
-import { isEnokiWallet, isGoogleWallet } from "@mysten/enoki";
+import { isEnokiWallet } from "@mysten/enoki";
 import Toaster from "../components/Toaster";
 import {
   clearRole,

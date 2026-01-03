@@ -9,7 +9,7 @@ import {
 } from "@radix-ui/react-icons";
 import { toast } from "../lib/toast";
 import { setRole, type AppRole } from "../lib/role";
-import { isEnokiWallet, isGoogleWallet } from "@mysten/enoki";
+import { isEnokiWallet } from "@mysten/enoki";
 import CopyPill from "../components/CopyPill";
 
 const TAGLINE = "Tickets. Instantly.";

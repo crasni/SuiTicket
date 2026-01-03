@@ -17,7 +17,7 @@ const PLATFORM_DUMMY =
   "0xe7db9021ff53de89cd3c527fb2911be32eb22c3ec2a8b77e1ccb47ab1b0afc40";
 
 // === Your deployed package  ===
-import { LEGACY_PACKAGE_ID } from "../config/contracts";
+// import { LEGACY_PACKAGE_ID } from "../config/contracts";
 
 type ObjChange = {
   type: string;
