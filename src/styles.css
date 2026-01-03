@@ -1,0 +1,307 @@
+:root {
+  --st-header-h: 64px;
+}
+
+/* suiticket blue gradient “world background” */
+body {
+  margin: 0;
+  background:
+    radial-gradient(
+      980px 560px at 50% -10%,
+      rgba(99, 102, 241, 0.34),
+      transparent 62%
+    ),
+    radial-gradient(
+      860px 540px at 12% 12%,
+      rgba(59, 130, 246, 0.18),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 88% 20%,
+      rgba(99, 102, 241, 0.14),
+      transparent 65%
+    ),
+    var(--color-background);
+}
+
+.st-page {
+  position: relative;
+}
+.st-backCorner {
+  position: sticky;
+  top: calc(var(--st-header-h) + 10px);
+  z-index: 10;
+  width: fit-content;
+  margin-bottom: 10px;
+}
+
+/* hide scrollbar only on home (still scrollable) */
+.st-hidescroll {
+  scrollbar-width: none;
+}
+.st-hidescroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* hover/press */
+.st-cardhover {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+.st-cardhover:hover {
+  transform: translatey(-2px);
+  box-shadow: 0 18px 56px rgba(0, 0, 0, 0.35);
+}
+.st-press {
+  transition: transform 120ms ease;
+}
+.st-press:active {
+  transform: scale(0.98);
+}
+
+/* ===== normal scrolling home: reveal on scroll ===== */
+
+.st-homesectionanchor {
+  /* allow scrollIntoView to land below the sticky header */
+  scroll-margin-top: calc(var(--st-header-h) + 18px);
+  height: 1px;
+}
+
+.st-reveal {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(2px);
+  transition:
+    opacity 360ms ease,
+    transform 360ms ease,
+    filter 360ms ease;
+}
+.st-reveal.is-in {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* ===== Scrollytelling: wrapper provides scroll ranges; stage stays pinned ===== */
+
+.st-storyWrap {
+  /* 3 steps * 110vh => 330vh scroll range */
+  height: 330vh;
+  position: relative;
+}
+
+/* Stage pinned under the sticky header */
+.st-stage {
+  position: sticky;
+  top: var(--st-header-h);
+  height: calc(100vh - var(--st-header-h));
+  overflow: hidden;
+}
+
+/* Layers stack on top of each other */
+.st-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+
+  /* default: hidden */
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(2px);
+
+  pointer-events: none;
+
+  transition:
+    opacity 260ms ease,
+    transform 260ms ease,
+    filter 260ms ease;
+}
+
+/* Current layer */
+.st-layer.is-on {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  pointer-events: auto;
+}
+
+/* Outgoing layer (briefly visible while fading out) */
+.st-layer.is-off {
+  opacity: 0;
+  transform: translateY(-6px);
+  filter: blur(2px);
+  pointer-events: none;
+}
+
+/* content placement */
+.st-sectionInner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* hero panel: keep your “title box” vibe */
+.st-heroPanel {
+  border-radius: 28px;
+  border: 1px solid var(--gray-a4);
+  padding: 44px;
+  background: linear-gradient(
+    180deg,
+    rgba(99, 102, 241, 0.22),
+    rgba(255, 255, 255, 0.03) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+@media (max-width: 980px) {
+  .st-sectionInner {
+    padding: 0 16px;
+  }
+  .st-heroPanel {
+    padding: 28px;
+  }
+}
+
+/* Typography */
+.st-kicker {
+  opacity: 0.72;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+.st-heroTitle {
+  letter-spacing: -0.02em;
+}
+.st-heroSub {
+  opacity: 0.78;
+  line-height: 1.8;
+}
+
+/* grids */
+.st-grid3 {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 980px) {
+  .st-grid3 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}
+
+/* tiles / cards */
+.st-tile2 {
+  border-radius: 22px;
+  padding: 26px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--gray-a4);
+  cursor: pointer;
+  user-select: none;
+}
+.st-featureCard {
+  border-radius: 22px;
+  padding: 26px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--gray-a4);
+}
+
+/* Dashboard panel emphasis */
+.st-panelActive {
+  border-color: rgba(99, 102, 241, 0.55);
+  box-shadow: 0 16px 52px rgba(99, 102, 241, 0.12);
+}
+
+.st-metaPill {
+  border: 1px solid var(--gray-a4);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+/* icon chip */
+.st-iconChip {
+  width: 48px;
+  height: 48px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.14);
+}
+.st-iconChipSoft {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--gray-a4);
+}
+
+/* connect strip */
+.st-connectStrip {
+  margin-top: 10px;
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid var(--gray-a4);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* ===== Shared UI surfaces (used across pages) ===== */
+
+.st-surface {
+  border-radius: 22px;
+  border: 1px solid var(--gray-a4);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 18px;
+}
+
+.st-surfaceDense {
+  padding: 14px;
+}
+
+.st-surfaceInteractive {
+  cursor: pointer;
+  user-select: none;
+}
+
+.st-divider {
+  height: 1px;
+  width: 100%;
+  background: var(--gray-a4);
+  opacity: 0.8;
+  margin: 14px 0;
+}
+
+.st-pillBtn {
+  border-radius: 999px;
+}
+
+.st-muted {
+  opacity: 0.75;
+}
+
+.st-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-a4);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.st-modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: saturate(160%) blur(10px);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 16px;
+}
+.st-connectStrip[data-attn="1"] {
+  background: rgba(234, 179, 8, 0.1);
+  border-color: rgba(234, 179, 8, 0.22);
+}
