@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Flex, Text, TextField } from "@radix-ui/themes";
+import { Button, Flex, Text, TextField } from "@radix-ui/themes";
 import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
-import { copyText } from "../lib/clipboard";
+import Surface from "../components/Surface";
+import CopyPill from "../components/CopyPill";
 import { CURRENT_PACKAGE_ID } from "../config/contracts";
 import { useEventNames } from "../hooks/useEventNames";
 
@@ -174,7 +175,7 @@ export default function StaffEvents() {
         }
       />
 
-      <Card>
+      <Surface>
         <Flex direction="column" gap="2">
           <Text weight="medium">Search</Text>
           <TextField.Root
@@ -188,7 +189,7 @@ export default function StaffEvents() {
             </Text>
           ) : null}
         </Flex>
-      </Card>
+      </Surface>
 
       {!account?.address ? (
         <EmptyState
@@ -231,6 +232,7 @@ export default function StaffEvents() {
                       size="2"
                       variant="soft"
                       color="gray"
+                      className="st-pillBtn"
                       onClick={() =>
                         setEventDetails((m) => ({
                           ...m,
@@ -245,7 +247,7 @@ export default function StaffEvents() {
               </Flex>
 
               {eventKey !== "(unknown)" && eventDetails[eventKey] ? (
-                <Card>
+                <Surface dense>
                   <Flex direction="column" gap="2">
                     <Text size="2" color="gray">
                       Event details
@@ -254,32 +256,30 @@ export default function StaffEvents() {
                       size="2"
                       style={{ wordBreak: "break-all", opacity: 0.85 }}
                     >
-                      <Text weight="medium">Event ID:</Text> {eventKey}
-                      <Button
-                        size="1"
-                        variant="soft"
-                        color="gray"
-                        style={{ marginLeft: 8 }}
-                        onClick={() => copyText(eventKey, "Event ID copied")}
-                      >
-                        Copy
-                      </Button>
+                      <b>Event ID:</b> {eventKey}
+                    </Text>
+                    <Flex gap="2" wrap="wrap" align="center">
+                      <CopyPill
+                        value={eventKey}
+                        label="Copy"
+                        toastMsg="Event ID copied"
+                        size="2"
+                      />
                       <a
                         href={suiscanObjectUrl(eventKey)}
                         target="_blank"
                         rel="noreferrer"
-                        style={{ marginLeft: 10 }}
                       >
                         Open
                       </a>
-                    </Text>
+                    </Flex>
                   </Flex>
-                </Card>
+                </Surface>
               ) : null}
 
               <Flex direction="column" gap="2">
                 {arr.map((c) => (
-                  <Card key={c.id}>
+                  <Surface key={c.id}>
                     <Flex direction="column" gap="2">
                       <Flex
                         align="center"
@@ -309,26 +309,21 @@ export default function StaffEvents() {
                           </Text>
                         </Flex>
 
-                        <Flex gap="2" wrap="wrap">
+                        <Flex gap="2" wrap="wrap" align="center">
                           <Button
                             size="2"
+                            className="st-pillBtn"
                             variant={selectedCapId === c.id ? "solid" : "soft"}
                             onClick={() => useCap(c.id)}
                           >
                             {selectedCapId === c.id ? "Using" : "Use"}
                           </Button>
+                          <CopyPill value={c.id} label="Copy" size="2" />
                           <Button
                             size="2"
                             variant="soft"
                             color="gray"
-                            onClick={() => copyText(c.id)}
-                          >
-                            Copy
-                          </Button>
-                          <Button
-                            size="2"
-                            variant="soft"
-                            color="gray"
+                            className="st-pillBtn"
                             onClick={() =>
                               setCapDetails((m) => ({
                                 ...m,
@@ -342,7 +337,7 @@ export default function StaffEvents() {
                       </Flex>
 
                       {capDetails[c.id] ? (
-                        <Card>
+                        <Surface dense>
                           <Flex direction="column" gap="2">
                             <Text size="2" color="gray">
                               GateCap details
@@ -352,73 +347,62 @@ export default function StaffEvents() {
                               size="2"
                               style={{ wordBreak: "break-all", opacity: 0.85 }}
                             >
-                              <Text weight="medium">Cap ID:</Text> {c.id}{" "}
-                              <Button
-                                size="1"
-                                variant="soft"
-                                color="gray"
-                                style={{ marginLeft: 8 }}
-                                onClick={() => copyText(c.id)}
-                              >
-                                Copy
-                              </Button>{" "}
+                              <b>Cap ID:</b> {c.id}
+                            </Text>
+                            <Flex gap="2" wrap="wrap" align="center">
+                              <CopyPill
+                                value={c.id}
+                                label="Copy cap"
+                                size="2"
+                              />
                               <a
                                 href={suiscanObjectUrl(c.id)}
                                 target="_blank"
                                 rel="noreferrer"
-                                style={{ marginLeft: 10 }}
                               >
                                 Open
                               </a>
-                            </Text>
+                            </Flex>
 
                             <Text
                               size="2"
                               style={{ wordBreak: "break-all", opacity: 0.85 }}
                             >
-                              <Text weight="medium">Event ID:</Text>{" "}
-                              {c.eventId ?? "-"}
-                              {c.eventId ? (
-                                <>
-                                  <Button
-                                    size="1"
-                                    variant="soft"
-                                    color="gray"
-                                    style={{ marginLeft: 8 }}
-                                    onClick={() => copyText(c.eventId!)}
-                                  >
-                                    Copy
-                                  </Button>
-                                  <a
-                                    href={suiscanObjectUrl(c.eventId)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ marginLeft: 10 }}
-                                  >
-                                    Open
-                                  </a>
-                                </>
-                              ) : null}
+                              <b>Event ID:</b> {c.eventId ?? "-"}
                             </Text>
+                            {c.eventId ? (
+                              <Flex gap="2" wrap="wrap" align="center">
+                                <CopyPill
+                                  value={c.eventId}
+                                  label="Copy event"
+                                  size="2"
+                                />
+                                <a
+                                  href={suiscanObjectUrl(c.eventId)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  Open
+                                </a>
+                              </Flex>
+                            ) : null}
 
-                            <Text size="2" style={{ opacity: 0.75 }}>
-                              <Text weight="medium">Owner:</Text>{" "}
-                              {account.address}
-                              <Button
-                                size="1"
-                                variant="soft"
-                                color="gray"
-                                style={{ marginLeft: 8 }}
-                                onClick={() => copyText(account.address)}
-                              >
-                                Copy
-                              </Button>
+                            <Text
+                              size="2"
+                              style={{ opacity: 0.75, wordBreak: "break-all" }}
+                            >
+                              <b>Owner:</b> {account.address}
                             </Text>
+                            <CopyPill
+                              value={account.address}
+                              label="Copy owner"
+                              size="2"
+                            />
                           </Flex>
-                        </Card>
+                        </Surface>
                       ) : null}
                     </Flex>
-                  </Card>
+                  </Surface>
                 ))}
               </Flex>
             </Flex>

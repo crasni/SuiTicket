@@ -15,7 +15,7 @@ const SUB = "Buy, create, and check-in with QR — without the blockchain noise.
 
 // Scrollytelling track: each step owns STEP_VH * viewportHeight pixels of scroll.
 const STEPS = 3;
-const STEP_VH = 0.65;
+const STEP_VH = 0.8;
 
 function clampInt(x: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, x));
@@ -60,7 +60,7 @@ export default function Home() {
           title: "Staff check-in",
           desc: "Pick event, scan QR, and issue one-time permits.",
           icon: <IdCardIcon />,
-          go: "/staff/events",
+          go: "/staff",
         },
       ] as const,
     [],

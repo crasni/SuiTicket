@@ -87,7 +87,7 @@ export default function AppShell() {
         return [{ to: "/create", label: "Create" }];
       case "staff":
         return [
-          { to: "/staff", label: "Staff" },
+          { to: "/staff", label: "Check-in" },
           { to: "/staff/events", label: "Events" },
         ];
     }

@@ -92,23 +92,12 @@ export default function QrScanModal({
   if (!open) return null;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "grid",
-        placeItems: "center",
-        zIndex: 1000,
-        padding: 16,
-      }}
-      onClick={onClose}
-    >
+    <div className="st-modalBackdrop" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width: "min(520px, 100%)" }}
       >
-        <Card>
+        <Card style={{ borderRadius: 22 }}>
           <Flex direction="column" gap="3">
             <Flex align="center" justify="between" gap="3">
               <Text weight="bold">{title}</Text>

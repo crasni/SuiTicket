@@ -199,6 +199,61 @@ body {
   border: 1px solid var(--gray-a4);
   background: rgba(255, 255, 255, 0.03);
 }
+
+/* ===== Shared UI surfaces (used across pages) ===== */
+
+.st-surface {
+  border-radius: 22px;
+  border: 1px solid var(--gray-a4);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 18px;
+}
+
+.st-surfaceDense {
+  padding: 14px;
+}
+
+.st-surfaceInteractive {
+  cursor: pointer;
+  user-select: none;
+}
+
+.st-divider {
+  height: 1px;
+  width: 100%;
+  background: var(--gray-a4);
+  opacity: 0.8;
+  margin: 14px 0;
+}
+
+.st-pillBtn {
+  border-radius: 999px;
+}
+
+.st-muted {
+  opacity: 0.75;
+}
+
+.st-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--gray-a4);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.st-modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: saturate(160%) blur(10px);
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 16px;
+}
 .st-connectStrip[data-attn="1"] {
   background: rgba(234, 179, 8, 0.1);
   border-color: rgba(234, 179, 8, 0.22);

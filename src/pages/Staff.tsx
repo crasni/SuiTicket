@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Card, Flex, Text, TextField } from "@radix-ui/themes";
+import { Button, Flex, Text, TextField } from "@radix-ui/themes";
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
@@ -11,6 +11,8 @@ import { Transaction } from "@mysten/sui/transactions";
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
 import QrScanModal from "../components/QrScanModal";
+import Surface from "../components/Surface";
+import CopyPill from "../components/CopyPill";
 import { copyText, readText } from "../lib/clipboard";
 import { CURRENT_PACKAGE_ID, TARGETS } from "../config/contracts";
 import { useEventNames } from "../hooks/useEventNames";
@@ -342,7 +344,7 @@ export default function Staff() {
           }
         />
 
-        <Card>
+        <Surface>
           <Flex direction="column" gap="3">
             <Text weight="medium">Your GateCaps</Text>
 
@@ -354,7 +356,7 @@ export default function Staff() {
             ) : (
               <Flex direction="column" gap="2">
                 {caps.map((c) => (
-                  <Card key={c.id}>
+                  <Surface key={c.id}>
                     <Flex align="center" justify="between" gap="3" wrap="wrap">
                       <Flex
                         direction="column"
@@ -381,6 +383,7 @@ export default function Staff() {
                       <Flex gap="2" wrap="wrap">
                         <Button
                           size="2"
+                          className="st-pillBtn"
                           variant={capId === c.id ? "solid" : "soft"}
                           onClick={() => {
                             setCapId(c.id);
@@ -390,19 +393,13 @@ export default function Staff() {
                           {capId === c.id ? "Using" : "Use"}
                         </Button>
 
-                        <Button
-                          size="2"
-                          variant="soft"
-                          color="gray"
-                          onClick={() => copyText(c.id)}
-                        >
-                          Copy
-                        </Button>
+                        <CopyPill value={c.id} size="2" />
 
                         <Button
                           size="2"
                           variant="soft"
                           color="gray"
+                          className="st-pillBtn"
                           onClick={() =>
                             setCapDetails((m) => ({
                               ...m,
@@ -416,7 +413,7 @@ export default function Staff() {
                     </Flex>
 
                     {capDetails[c.id] ? (
-                      <Card style={{ marginTop: 12 }}>
+                      <Surface dense style={{ marginTop: 12 }}>
                         <Flex direction="column" gap="2">
                           <Text size="2" color="gray">
                             GateCap details
@@ -491,16 +488,16 @@ export default function Staff() {
                             ) : null}
                           </Text>
                         </Flex>
-                      </Card>
+                      </Surface>
                     ) : null}
-                  </Card>
+                  </Surface>
                 ))}
               </Flex>
             )}
           </Flex>
-        </Card>
+        </Surface>
 
-        <Card>
+        <Surface>
           <Flex direction="column" gap="3">
             <Text weight="medium">Issue permit</Text>
 
@@ -515,15 +512,9 @@ export default function Staff() {
                   onChange={(e) => setCapId(e.target.value)}
                   style={{ flex: 1, minWidth: 320 }}
                 />
-                <Button
-                  size="2"
-                  variant="soft"
-                  color="gray"
-                  disabled={!capId.trim()}
-                  onClick={() => copyText(capId.trim())}
-                >
-                  Copy
-                </Button>
+                {capId.trim() ? (
+                  <CopyPill value={capId.trim()} label="Copy" size="2" />
+                ) : null}
               </Flex>
             </Flex>
 
@@ -558,15 +549,9 @@ export default function Staff() {
                   Paste
                 </Button>
 
-                <Button
-                  size="2"
-                  variant="soft"
-                  color="gray"
-                  onClick={() => copyText(ticketId.trim())}
-                  disabled={!ticketId.trim()}
-                >
-                  Copy
-                </Button>
+                {ticketId.trim() ? (
+                  <CopyPill value={ticketId.trim()} label="Copy" size="2" />
+                ) : null}
               </Flex>
             </Flex>
 
@@ -594,7 +579,7 @@ export default function Staff() {
               </Text>
             ) : null}
           </Flex>
-        </Card>
+        </Surface>
 
         <Flex direction="column" gap="2">
           <Text weight="medium">Result</Text>
@@ -605,7 +590,7 @@ export default function Staff() {
               desc="Lookup a ticket to see owner + used status here."
             />
           ) : (
-            <Card>
+            <Surface>
               <Flex direction="column" gap="2">
                 <Text size="2" color="gray">
                   Ticket info
@@ -614,15 +599,9 @@ export default function Staff() {
                 <Text style={{ wordBreak: "break-all", opacity: 0.85 }}>
                   <Text weight="medium">Owner:</Text> {lookup.owner ?? "-"}{" "}
                   {lookup.owner ? (
-                    <Button
-                      size="1"
-                      variant="soft"
-                      color="gray"
-                      style={{ marginLeft: 8 }}
-                      onClick={() => copyText(lookup.owner!)}
-                    >
-                      Copy
-                    </Button>
+                    <span style={{ marginLeft: 8 }}>
+                      <CopyPill value={lookup.owner!} label="Copy" size="1" />
+                    </span>
                   ) : null}
                 </Text>
 
@@ -644,6 +623,7 @@ export default function Staff() {
                       size="2"
                       variant="soft"
                       color="gray"
+                      className="st-pillBtn"
                       onClick={() => setShowResultDetails((x) => !x)}
                     >
                       {showResultDetails ? "Hide details" : "Details"}
@@ -652,7 +632,7 @@ export default function Staff() {
                 </Flex>
 
                 {showResultDetails && lookup.eventId ? (
-                  <Card>
+                  <Surface dense>
                     <Flex direction="column" gap="2">
                       <Text size="2" color="gray">
                         Event details
@@ -675,7 +655,7 @@ export default function Staff() {
                         </Button>
                       </Text>
                     </Flex>
-                  </Card>
+                  </Surface>
                 ) : null}
 
                 {permitId ? (
@@ -704,7 +684,7 @@ export default function Staff() {
                   </>
                 ) : null}
               </Flex>
-            </Card>
+            </Surface>
           )}
         </Flex>
       </Flex>

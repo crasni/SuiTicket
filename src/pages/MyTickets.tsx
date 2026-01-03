@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, Flex, Text } from "@radix-ui/themes";
+import { Button, Flex, Text } from "@radix-ui/themes";
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
@@ -10,12 +10,36 @@ import { QRCodeSVG } from "qrcode.react";
 
 import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
-import { copyText } from "../lib/clipboard";
+import Surface from "../components/Surface";
+import CopyPill from "../components/CopyPill";
 import { CURRENT_PACKAGE_ID, TARGETS } from "../config/contracts";
 import { useEventNames } from "../hooks/useEventNames";
+import { getSharedVersion, parseMoveObject, u8vecToString } from "../sui/parse";
 
 type TicketRow = { id: string; eventId?: string; used?: boolean };
 type PermitRow = { id: string; ticketId?: string; eventId?: string };
+
+const MIST_PER_SUI = 1_000_000_000n;
+
+function formatSuiFromMist(mist: bigint) {
+  const whole = mist / MIST_PER_SUI;
+  const frac = mist % MIST_PER_SUI;
+  const fracStr = frac.toString().padStart(9, "0").replace(/0+$/, "");
+  return fracStr ? `${whole}.${fracStr}` : `${whole}`;
+}
+
+function feeBreakdown(priceMist: bigint, feeBps: number) {
+  const feeMist = (priceMist * BigInt(feeBps)) / 10_000n;
+  const payoutMist = priceMist - feeMist;
+  return { feeMist, payoutMist };
+}
+
+function shortAddr(a?: string) {
+  if (!a) return "-";
+  const s = a.trim();
+  if (s.length <= 14) return s;
+  return `${s.slice(0, 6)}…${s.slice(-4)}`;
+}
 
 function shortId(id?: string) {
   if (!id) return "-";
@@ -38,23 +62,12 @@ function QrCodeModal({
   if (!open) return null;
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "grid",
-        placeItems: "center",
-        zIndex: 1000,
-        padding: 16,
-      }}
-      onClick={onClose}
-    >
+    <div className="st-modalBackdrop" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ width: "min(520px, 100%)" }}
       >
-        <Card>
+        <Surface>
           <Flex direction="column" gap="3" align="center">
             <Flex
               align="center"
@@ -89,17 +102,10 @@ function QrCodeModal({
             </Text>
 
             <Flex gap="2" wrap="wrap" justify="center">
-              <Button
-                size="2"
-                variant="soft"
-                onClick={() => copyText(value)}
-                style={{ minWidth: 120 }}
-              >
-                Copy Ticket ID
-              </Button>
+              <CopyPill value={value} label="Copy Ticket ID" size="2" />
             </Flex>
           </Flex>
-        </Card>
+        </Surface>
       </div>
     </div>
   );
@@ -116,18 +122,28 @@ export default function MyTickets() {
   const [status, setStatus] = useState("");
   const [qrTicketId, setQrTicketId] = useState<string | null>(null);
 
-  // Selection for redeem flow:
-  // We auto-pair permit with ticket if exactly one exists.
-  const [selectedTicketId, setSelectedTicketId] = useState("");
-  const [selectedPermitId, setSelectedPermitId] = useState("");
+  const [redeemStatus, setRedeemStatus] = useState("");
+  const [redeemBusyKey, setRedeemBusyKey] = useState<string>("");
 
-  const pkgPrefix = useMemo(() => `${CURRENT_PACKAGE_ID}::ticket::`, []);
+  const [eventInfoById, setEventInfoById] = useState<Record<string, any>>({});
+  const [eventLoadingById, setEventLoadingById] = useState<
+    Record<string, boolean>
+  >({});
+
+  const pkgPrefix = useMemo(
+    () => `${CURRENT_PACKAGE_ID}::ticket::`,
+    [CURRENT_PACKAGE_ID],
+  );
   const { mutate: signAndExecute, isPending } = useSignAndExecuteTransaction();
 
-  const eventIdsForNames = useMemo(
-    () => [...tickets.map((t) => t.eventId), ...permits.map((p) => p.eventId)],
-    [tickets, permits],
-  );
+  const eventIdsForNames = useMemo(() => {
+    const ids = [
+      ...tickets.map((t) => t.eventId),
+      ...permits.map((p) => p.eventId),
+    ].filter(Boolean) as string[];
+    return Array.from(new Set(ids));
+  }, [tickets, permits]);
+
   const eventNameMap = useEventNames(eventIdsForNames);
 
   const ticketGroups = useMemo(() => {
@@ -140,6 +156,56 @@ export default function MyTickets() {
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [tickets]);
+
+  async function loadEventInfo(eventId: string) {
+    if (!eventId || eventId === "(unknown)") return;
+    if (eventInfoById[eventId]) return; // cached
+    if (eventLoadingById[eventId]) return;
+
+    setEventLoadingById((m) => ({ ...m, [eventId]: true }));
+    try {
+      const obj = await client.getObject({
+        id: eventId,
+        options: { showContent: true, showOwner: true, showType: true },
+      });
+
+      const p = parseMoveObject(obj);
+      if (!p?.fields) throw new Error("Event not found");
+
+      const f = p.fields;
+      const name = u8vecToString(f.name);
+      const organizer = String(f.organizer ?? "");
+      const platform = String(f.platform ?? "");
+      const priceMist = BigInt(f.price_mist ?? 0);
+      const feeBps = Number(f.fee_bps ?? 0);
+      const sharedVersion = getSharedVersion(p.owner);
+
+      const { feeMist, payoutMist } = feeBreakdown(priceMist, feeBps);
+
+      setEventInfoById((m) => ({
+        ...m,
+        [eventId]: {
+          id: eventId,
+          name,
+          organizer,
+          platform,
+          priceMist,
+          priceSui: formatSuiFromMist(priceMist),
+          feeBps,
+          feeSui: formatSuiFromMist(feeMist),
+          payoutSui: formatSuiFromMist(payoutMist),
+          sharedVersion,
+        },
+      }));
+    } catch (e: any) {
+      setEventInfoById((m) => ({
+        ...m,
+        [eventId]: { id: eventId, error: e?.message ?? String(e) },
+      }));
+    } finally {
+      setEventLoadingById((m) => ({ ...m, [eventId]: false }));
+    }
+  }
 
   async function refreshOwned() {
     if (!account?.address) {
@@ -173,11 +239,14 @@ export default function MyTickets() {
       const id = (it.data as any)?.objectId as string | undefined;
       const type = (it.data as any)?.type as string | undefined;
       if (!id || !type) continue;
-      if (!type.startsWith(pkgPrefix)) continue;
+
+      // ✅ strip generics: Ticket<...> / RedeemPermit<...>
+      const baseType = type.split("<")[0];
+      if (!baseType.startsWith(pkgPrefix)) continue;
 
       const fields = (it.data as any)?.content?.fields;
 
-      if (type.endsWith("::Ticket")) {
+      if (baseType.endsWith("::Ticket")) {
         const used = fields?.used;
         const eventId = fields?.event_id ? String(fields.event_id) : undefined;
         tks.push({
@@ -185,7 +254,7 @@ export default function MyTickets() {
           eventId,
           used: typeof used === "boolean" ? used : undefined,
         });
-      } else if (type.endsWith("::RedeemPermit")) {
+      } else if (baseType.endsWith("::RedeemPermit")) {
         const ticketId = fields?.ticket_id
           ? String(fields.ticket_id)
           : undefined;
@@ -196,13 +265,6 @@ export default function MyTickets() {
 
     setTickets(tks);
     setPermits(ps);
-
-    // Auto-pair permit if ticket already selected
-    if (selectedTicketId) {
-      const matches = ps.filter((p) => p.ticketId === selectedTicketId);
-      if (matches.length === 1) setSelectedPermitId(matches[0].id);
-    }
-
     setStatus(`✅ refreshed. tickets=${tks.length}, permits=${ps.length}`);
   }
 
@@ -236,29 +298,24 @@ export default function MyTickets() {
     return permits.filter((p) => p.ticketId === ticketId);
   }
 
-  function selectTicket(ticketId: string) {
-    setSelectedTicketId(ticketId);
-    const matches = permitForTicket(ticketId);
-    if (matches.length === 1) setSelectedPermitId(matches[0].id);
-    else setSelectedPermitId("");
-  }
+  function onRedeem(ticketId: string, permitId: string) {
+    if (!account?.address) {
+      setRedeemStatus("Please connect your wallet.");
+      return;
+    }
+    const t = ticketId.trim();
+    const p = permitId.trim();
+    if (!t || !p) return;
 
-  function onRedeemWithPermit() {
-    if (!account?.address) return setStatus("Please connect your wallet.");
-    if (!selectedTicketId.trim()) return setStatus("Select a ticket first.");
-    if (!selectedPermitId.trim())
-      return setStatus("No permit paired yet (ask staff to issue).");
-
-    setStatus("Redeeming with permit...");
+    const busyKey = `${t}:${p}`;
+    setRedeemBusyKey(busyKey);
+    setRedeemStatus("Redeeming...");
 
     const tx = new Transaction();
     tx.setGasBudget(30_000_000);
     tx.moveCall({
       target: TARGETS.redeemWithPermit,
-      arguments: [
-        tx.object(selectedTicketId.trim()),
-        tx.object(selectedPermitId.trim()),
-      ],
+      arguments: [tx.object(t), tx.object(p)],
     });
 
     signAndExecute(
@@ -269,20 +326,26 @@ export default function MyTickets() {
             const txb = await waitTx(res.digest);
             const ok = (txb as any)?.effects?.status?.status === "success";
             const err = (txb as any)?.effects?.status?.error;
-            if (!ok)
-              return setStatus(`❌ redeem failed: ${err ?? "Unknown error"}`);
-
-            setStatus("✅ Redeemed! Refreshing...");
+            if (!ok) {
+              setRedeemStatus(`❌ redeem failed: ${err ?? "Unknown error"}`);
+              return;
+            }
+            setRedeemStatus("✅ Redeemed! Refreshing...");
             await refreshOwned();
           } catch (e: any) {
-            setStatus(
+            setRedeemStatus(
               `✅ Redeem sent. (Couldn't load final status): ${
                 e?.message ?? String(e)
               }`,
             );
+          } finally {
+            setRedeemBusyKey("");
           }
         },
-        onError: (err) => setStatus(`❌ redeem failed: ${String(err)}`),
+        onError: (err) => {
+          setRedeemStatus(`❌ redeem failed: ${String(err)}`);
+          setRedeemBusyKey("");
+        },
       },
     );
   }
@@ -313,9 +376,19 @@ export default function MyTickets() {
         />
 
         {status ? (
-          <Text size="2" style={{ whiteSpace: "pre-wrap", opacity: 0.85 }}>
-            {status}
-          </Text>
+          <Surface dense>
+            <Text size="2" style={{ whiteSpace: "pre-wrap", opacity: 0.85 }}>
+              {status}
+            </Text>
+          </Surface>
+        ) : null}
+
+        {redeemStatus ? (
+          <Surface dense>
+            <Text size="2" style={{ whiteSpace: "pre-wrap", opacity: 0.85 }}>
+              {redeemStatus}
+            </Text>
+          </Surface>
         ) : null}
 
         <Flex direction="column" gap="2">
@@ -357,12 +430,14 @@ export default function MyTickets() {
                           size="2"
                           variant="soft"
                           color="gray"
-                          onClick={() =>
-                            setEventDetails((m) => ({
-                              ...m,
-                              [eventKey]: !m[eventKey],
-                            }))
-                          }
+                          onClick={() => {
+                            setEventDetails((m) => {
+                              const next = !m[eventKey];
+                              // only fetch when opening
+                              if (next) loadEventInfo(eventKey).catch(() => {});
+                              return { ...m, [eventKey]: next };
+                            });
+                          }}
                         >
                           {eventDetails[eventKey] ? "Hide details" : "Details"}
                         </Button>
@@ -371,41 +446,160 @@ export default function MyTickets() {
                   </Flex>
 
                   {eventKey !== "(unknown)" && eventDetails[eventKey] ? (
-                    <Card>
+                    <Surface dense>
                       <Flex direction="column" gap="2">
                         <Text size="2" color="gray">
                           Event details
                         </Text>
-                        <Text
-                          size="2"
-                          style={{ wordBreak: "break-all", opacity: 0.85 }}
-                        >
-                          <Text weight="medium">Event ID:</Text> {eventKey}
-                          <Button
-                            size="1"
-                            variant="soft"
-                            color="gray"
-                            style={{ marginLeft: 8 }}
-                            onClick={() =>
-                              copyText(eventKey, "Event ID copied")
-                            }
-                          >
-                            Copy
-                          </Button>
-                        </Text>
+
+                        {eventLoadingById[eventKey] ? (
+                          <Text size="2" style={{ opacity: 0.75 }}>
+                            Loading…
+                          </Text>
+                        ) : eventInfoById[eventKey]?.error ? (
+                          <Text size="2" color="red">
+                            Failed to load event:{" "}
+                            {eventInfoById[eventKey].error}
+                          </Text>
+                        ) : eventInfoById[eventKey] ? (
+                          <>
+                            <Text size="3" weight="medium">
+                              {eventInfoById[eventKey].name ||
+                                `Event ${shortId(eventKey)}`}
+                            </Text>
+
+                            <Flex gap="3" wrap="wrap">
+                              <Text size="2" style={{ opacity: 0.85 }}>
+                                Price: <b>{eventInfoById[eventKey].priceSui}</b>{" "}
+                                SUI
+                              </Text>
+                              <Text size="2" style={{ opacity: 0.85 }}>
+                                Fee:{" "}
+                                <b>
+                                  {(
+                                    eventInfoById[eventKey].feeBps / 100
+                                  ).toFixed(2)}
+                                  %
+                                </b>{" "}
+                                ({eventInfoById[eventKey].feeSui} SUI)
+                              </Text>
+                              <Text size="2" style={{ opacity: 0.85 }}>
+                                Organizer receives:{" "}
+                                {eventInfoById[eventKey].payoutSui} SUI
+                              </Text>
+                            </Flex>
+
+                            <div className="st-divider" />
+
+                            <Flex direction="column" gap="1">
+                              <Flex
+                                align="center"
+                                justify="between"
+                                gap="2"
+                                wrap="wrap"
+                              >
+                                <Text size="2" style={{ opacity: 0.85 }}>
+                                  Organizer:{" "}
+                                  {shortAddr(eventInfoById[eventKey].organizer)}
+                                </Text>
+                                <CopyPill
+                                  value={eventInfoById[eventKey].organizer}
+                                  label="Copy"
+                                  size="1"
+                                />
+                              </Flex>
+
+                              <Flex
+                                align="center"
+                                justify="between"
+                                gap="2"
+                                wrap="wrap"
+                              >
+                                <Text size="2" style={{ opacity: 0.85 }}>
+                                  Platform:{" "}
+                                  {shortAddr(eventInfoById[eventKey].platform)}
+                                </Text>
+                                <CopyPill
+                                  value={eventInfoById[eventKey].platform}
+                                  label="Copy"
+                                  size="1"
+                                />
+                              </Flex>
+                            </Flex>
+
+                            <div className="st-divider" />
+
+                            <Flex
+                              align="center"
+                              justify="between"
+                              gap="2"
+                              wrap="wrap"
+                            >
+                              <Text
+                                size="2"
+                                style={{
+                                  wordBreak: "break-all",
+                                  opacity: 0.85,
+                                  flex: 1,
+                                  minWidth: 240,
+                                }}
+                              >
+                                <Text weight="medium">Event ID:</Text>{" "}
+                                {eventKey}
+                              </Text>
+                              <CopyPill
+                                value={eventKey}
+                                label="Copy"
+                                size="1"
+                              />
+                            </Flex>
+
+                            {eventInfoById[eventKey].sharedVersion ? (
+                              <Flex
+                                align="center"
+                                justify="between"
+                                gap="2"
+                                wrap="wrap"
+                              >
+                                <Text
+                                  size="2"
+                                  style={{
+                                    wordBreak: "break-all",
+                                    opacity: 0.85,
+                                    flex: 1,
+                                    minWidth: 240,
+                                  }}
+                                >
+                                  <Text weight="medium">Shared version:</Text>{" "}
+                                  {eventInfoById[eventKey].sharedVersion}
+                                </Text>
+                                <CopyPill
+                                  value={eventInfoById[eventKey].sharedVersion}
+                                  label="Copy"
+                                  size="1"
+                                />
+                              </Flex>
+                            ) : null}
+                          </>
+                        ) : (
+                          <Text size="2" style={{ opacity: 0.75 }}>
+                            (No cached details yet.)
+                          </Text>
+                        )}
                       </Flex>
-                    </Card>
+                    </Surface>
                   ) : null}
 
                   <Flex direction="column" gap="2">
                     {arr.map((t) => {
                       const perms = permitForTicket(t.id);
                       const hasPermit = perms.length > 0;
-                      const isSelected = selectedTicketId === t.id;
                       const isExpanded = !!expanded[t.id];
+                      const quickPermit =
+                        !t.used && perms.length === 1 ? perms[0] : null;
 
                       return (
-                        <Card key={t.id}>
+                        <Surface key={t.id}>
                           <Flex direction="column" gap="2">
                             <Flex
                               align="center"
@@ -434,6 +628,7 @@ export default function MyTickets() {
                                 >
                                   Show QR
                                 </Button>
+
                                 <Button
                                   size="2"
                                   variant="soft"
@@ -447,13 +642,25 @@ export default function MyTickets() {
                                 >
                                   {isExpanded ? "Hide details" : "Details"}
                                 </Button>
-                                <Button
-                                  size="2"
-                                  variant={isSelected ? "solid" : "soft"}
-                                  onClick={() => selectTicket(t.id)}
-                                >
-                                  {isSelected ? "Selected" : "Use for redeem"}
-                                </Button>
+
+                                {quickPermit ? (
+                                  <Button
+                                    size="2"
+                                    onClick={() =>
+                                      onRedeem(t.id, quickPermit.id)
+                                    }
+                                    disabled={
+                                      isPending ||
+                                      redeemBusyKey ===
+                                        `${t.id}:${quickPermit.id}`
+                                    }
+                                  >
+                                    {redeemBusyKey ===
+                                    `${t.id}:${quickPermit.id}`
+                                      ? "Redeeming..."
+                                      : "Redeem"}
+                                  </Button>
+                                ) : null}
                               </Flex>
                             </Flex>
 
@@ -466,33 +673,36 @@ export default function MyTickets() {
                             ) : null}
 
                             {isExpanded ? (
-                              <Card>
+                              <Surface dense>
                                 <Flex direction="column" gap="2">
                                   <Text size="2" color="gray">
                                     Details
                                   </Text>
 
-                                  <Text
-                                    size="2"
-                                    style={{
-                                      wordBreak: "break-all",
-                                      opacity: 0.85,
-                                    }}
+                                  <Flex
+                                    align="center"
+                                    justify="between"
+                                    gap="2"
+                                    wrap="wrap"
                                   >
-                                    <Text weight="medium">Ticket ID:</Text>{" "}
-                                    {t.id}{" "}
-                                    <Button
-                                      size="1"
-                                      variant="soft"
-                                      color="gray"
-                                      style={{ marginLeft: 8 }}
-                                      onClick={() =>
-                                        copyText(t.id, "Ticket ID copied")
-                                      }
+                                    <Text
+                                      size="2"
+                                      style={{
+                                        wordBreak: "break-all",
+                                        opacity: 0.85,
+                                        flex: 1,
+                                        minWidth: 240,
+                                      }}
                                     >
-                                      Copy
-                                    </Button>
-                                  </Text>
+                                      <Text weight="medium">Ticket ID:</Text>{" "}
+                                      {t.id}
+                                    </Text>
+                                    <CopyPill
+                                      value={t.id}
+                                      label="Copy"
+                                      size="1"
+                                    />
+                                  </Flex>
 
                                   <Text
                                     size="2"
@@ -508,32 +718,36 @@ export default function MyTickets() {
                                       : "-"}
                                   </Text>
 
-                                  <Text
-                                    size="2"
-                                    style={{
-                                      wordBreak: "break-all",
-                                      opacity: 0.85,
-                                    }}
-                                  >
-                                    <Text weight="medium">Event ID:</Text>{" "}
-                                    {t.eventId ?? "-"}{" "}
-                                    {t.eventId ? (
-                                      <Button
-                                        size="1"
-                                        variant="soft"
-                                        color="gray"
-                                        style={{ marginLeft: 8 }}
-                                        onClick={() =>
-                                          copyText(
-                                            t.eventId!,
-                                            "Event ID copied",
-                                          )
-                                        }
+                                  {t.eventId ? (
+                                    <Flex
+                                      align="center"
+                                      justify="between"
+                                      gap="2"
+                                      wrap="wrap"
+                                    >
+                                      <Text
+                                        size="2"
+                                        style={{
+                                          wordBreak: "break-all",
+                                          opacity: 0.85,
+                                          flex: 1,
+                                          minWidth: 240,
+                                        }}
                                       >
-                                        Copy
-                                      </Button>
-                                    ) : null}
-                                  </Text>
+                                        <Text weight="medium">Event ID:</Text>{" "}
+                                        {t.eventId}
+                                      </Text>
+                                      <CopyPill
+                                        value={t.eventId}
+                                        label="Copy"
+                                        size="1"
+                                      />
+                                    </Flex>
+                                  ) : (
+                                    <Text size="2" style={{ opacity: 0.85 }}>
+                                      <Text weight="medium">Event ID:</Text> -
+                                    </Text>
+                                  )}
 
                                   <Text size="2" style={{ opacity: 0.85 }}>
                                     <Text weight="medium">Used:</Text>{" "}
@@ -574,40 +788,40 @@ export default function MyTickets() {
                                             {p.id}
                                           </Text>
 
-                                          <Flex gap="2">
-                                            <Button
-                                              size="2"
-                                              variant="soft"
-                                              color="gray"
-                                              onClick={() => copyText(p.id)}
-                                            >
-                                              Copy
-                                            </Button>
-                                            <Button
-                                              size="2"
-                                              variant={
-                                                selectedPermitId === p.id
-                                                  ? "solid"
-                                                  : "soft"
-                                              }
-                                              onClick={() =>
-                                                setSelectedPermitId(p.id)
-                                              }
-                                            >
-                                              {selectedPermitId === p.id
-                                                ? "Using"
-                                                : "Use"}
-                                            </Button>
+                                          <Flex gap="2" align="center">
+                                            <CopyPill
+                                              value={p.id}
+                                              label="Copy"
+                                              size="1"
+                                            />
+                                            {!t.used ? (
+                                              <Button
+                                                size="2"
+                                                onClick={() =>
+                                                  onRedeem(t.id, p.id)
+                                                }
+                                                disabled={
+                                                  isPending ||
+                                                  redeemBusyKey ===
+                                                    `${t.id}:${p.id}`
+                                                }
+                                              >
+                                                {redeemBusyKey ===
+                                                `${t.id}:${p.id}`
+                                                  ? "Redeeming..."
+                                                  : "Redeem"}
+                                              </Button>
+                                            ) : null}
                                           </Flex>
                                         </Flex>
                                       ))}
                                     </Flex>
                                   )}
                                 </Flex>
-                              </Card>
+                              </Surface>
                             ) : null}
                           </Flex>
-                        </Card>
+                        </Surface>
                       );
                     })}
                   </Flex>
@@ -616,48 +830,6 @@ export default function MyTickets() {
             </Flex>
           )}
         </Flex>
-
-        {/* Redeem section */}
-        <Card>
-          <Flex direction="column" gap="3">
-            <Text weight="medium">Redeem</Text>
-
-            {!selectedTicketId ? (
-              <Text size="2" style={{ opacity: 0.75 }}>
-                Select a ticket above. If staff already issued a permit, Redeem
-                will be available.
-              </Text>
-            ) : (
-              <>
-                <Text size="2" style={{ opacity: 0.75 }}>
-                  Ticket: {shortId(selectedTicketId)} • Permit:{" "}
-                  {selectedPermitId ? shortId(selectedPermitId) : "(none yet)"}
-                </Text>
-
-                <Flex gap="2" wrap="wrap">
-                  <Button
-                    size="2"
-                    onClick={onRedeemWithPermit}
-                    disabled={isPending || !selectedPermitId}
-                  >
-                    Redeem now
-                  </Button>
-                  <Button
-                    size="2"
-                    variant="soft"
-                    color="gray"
-                    onClick={() => {
-                      setSelectedTicketId("");
-                      setSelectedPermitId("");
-                    }}
-                  >
-                    Clear
-                  </Button>
-                </Flex>
-              </>
-            )}
-          </Flex>
-        </Card>
       </Flex>
     </>
   );

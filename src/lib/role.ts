@@ -40,6 +40,7 @@ export function defaultPathForRole(role: AppRole) {
     case "organizer":
       return "/create";
     case "staff":
-      return "/staff/events";
+      // ✅ Staff lands on check-in
+      return "/staff";
   }
 }
