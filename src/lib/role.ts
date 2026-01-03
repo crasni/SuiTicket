@@ -34,13 +34,8 @@ export function roleEventName() {
 }
 
 export function defaultPathForRole(role: AppRole) {
-  switch (role) {
-    case "buyer":
-      return "/explore";
-    case "organizer":
-      return "/create";
-    case "staff":
-      // ✅ Staff lands on check-in
-      return "/staff";
-  }
+  // Unified home base for all roles.
+  // From here, users can navigate to role-specific pages.
+  void role;
+  return "/dashboard";
 }

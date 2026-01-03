@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Flex, Text, TextField } from "@radix-ui/themes";
 import PageHeader from "../components/PageHeader";
+import BackButton from "../components/BackButton";
 import EmptyState from "../components/EmptyState";
 import Surface from "../components/Surface";
 import AdvancedDetails from "../components/AdvancedDetails";
@@ -44,6 +45,9 @@ export default function Explore() {
 
   return (
     <Flex direction="column" gap="4">
+      <div className="st-backCorner">
+        <BackButton fallbackTo="/dashboard" label="Back" />
+      </div>
       <PageHeader
         title="Explore"
         subtitle="Paste an Event ID to view details and buy a ticket."

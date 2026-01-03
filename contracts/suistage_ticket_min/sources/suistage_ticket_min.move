@@ -7,12 +7,24 @@ module suistage_ticket_min::ticket {
     use sui::coin::{Self, Coin};
     use sui::sui::SUI;
 
+    // std vector module (for push_back / empty)
+    use std::vector;
+
     /// Errors
     const E_ALREADY_USED: u64 = 0;
     const E_WRONG_EVENT:  u64 = 1;
     const E_INSUFFICIENT_PAYMENT: u64 = 2;
     const E_FEE_TOO_HIGH: u64 = 3; // fee_bps > 10000
     const E_WRONG_TICKET: u64 = 4;
+
+    /// -----------------------------------------------------------------------
+    /// NEW: Global registry (shared)
+    /// -----------------------------------------------------------------------
+    /// Holds a list of Event IDs so the frontend can discover/list events.
+    public struct EventRegistry has key {
+        id: UID,
+        events: vector<ID>,
+    }
 
     /// Event object (shared)
     public struct Event has key {
@@ -62,8 +74,23 @@ module suistage_ticket_min::ticket {
         recipient: address,
     }
 
+    /// -----------------------------------------------------------------------
+    /// NEW: Init registry (call once, then store the returned object ID off-chain)
+    /// -----------------------------------------------------------------------
+    /// Creates the shared registry object.
+    /// You only need to do this once per deployment/environment (e.g. testnet).
+    public entry fun init_registry(ctx: &mut TxContext) {
+        let reg = EventRegistry {
+            id: object::new(ctx),
+            events: vector::empty<ID>(),
+        };
+        transfer::share_object(reg);
+    }
+
     /// Create Event + GateCap and transfer cap to organizer; share event
+    /// CHANGED: now takes &mut EventRegistry so we can push the event ID for discovery.
     public entry fun create_event(
+        reg: &mut EventRegistry,
         name: vector<u8>,
         price_mist: u64,
         fee_bps: u16,
@@ -83,6 +110,9 @@ module suistage_ticket_min::ticket {
             platform,
         };
         let ev_id = object::id(&ev);
+
+        // NEW: register for discoverability
+        vector::push_back(&mut reg.events, ev_id);
 
         let cap = GateCap {
             id: object::new(ctx),

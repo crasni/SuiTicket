@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Button, Dialog, Flex, Text, TextField } from "@radix-ui/themes";
 import PageHeader from "../components/PageHeader";
+import BackButton from "../components/BackButton";
 import Surface from "../components/Surface";
 import AdvancedDetails from "../components/AdvancedDetails";
 import CopyPill from "../components/CopyPill";
@@ -9,6 +10,7 @@ import { useCurrentAccount } from "@mysten/dapp-kit";
 import { useEvent } from "../hooks/useEvent";
 import { useTicketActions } from "../hooks/useTicketActions";
 import { toast } from "../lib/toast";
+import { getRole, roleEventName, setRole, type AppRole } from "../lib/role";
 
 const MIST_PER_SUI = 1_000_000_000n;
 
@@ -32,6 +34,23 @@ export default function EventDetail() {
   const { data: ev, isLoading, error } = useEvent(eventId);
   const actions = useTicketActions();
 
+  const [role, setRoleState] = useState<AppRole | null>(() => getRole());
+
+  useEffect(() => {
+    const evt = roleEventName();
+    function sync() {
+      setRoleState(getRole());
+    }
+    window.addEventListener(evt, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(evt, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  const canBuy = role === "buyer";
+
   const [open, setOpen] = useState(false);
   const [recipient, setRecipient] = useState("");
   const [showDetails, setShowDetails] = useState(false);
@@ -42,7 +61,7 @@ export default function EventDetail() {
     return r || account?.address || "";
   }, [recipient, account?.address]);
 
-  // --- New: compute fee + payout from on-chain fields (price_mist + fee_bps)
+  // compute fee + payout from on-chain fields (price_mist + fee_bps)
   const breakdown = useMemo(() => {
     if (!ev) return null;
 
@@ -100,16 +119,34 @@ export default function EventDetail() {
 
   return (
     <Flex direction="column" gap="4">
+      <div className="st-backCorner">
+        <BackButton fallbackTo="/explore" label="Back" />
+      </div>
+
       <PageHeader
         title={ev?.name ? ev.name : "Event"}
-        subtitle="Review details and buy your ticket."
+        subtitle="View event details. Buying is available in Buyer mode."
         right={
-          <Button
-            disabled={!ev || !account?.address}
-            onClick={() => setOpen(true)}
-          >
-            Buy Ticket
-          </Button>
+          canBuy ? (
+            <Button
+              disabled={!ev || !account?.address}
+              onClick={() => setOpen(true)}
+            >
+              Buy Ticket
+            </Button>
+          ) : (
+            <Button
+              variant="soft"
+              color="gray"
+              onClick={() => {
+                setRole("buyer");
+                setRoleState("buyer");
+                toast.success("Switched to Buyer", "You can buy tickets now.");
+              }}
+            >
+              Switch to Buyer to buy
+            </Button>
+          )
         }
       />
 
@@ -126,7 +163,7 @@ export default function EventDetail() {
       ) : ev ? (
         <Surface>
           <Flex direction="column" gap="3">
-            {/* Main summary (clean, non-blockchainy) */}
+            {/* Main summary */}
             <Flex direction="column" gap="1">
               <Text weight="bold" size="4">
                 {ev.name}
@@ -145,7 +182,7 @@ export default function EventDetail() {
               </Flex>
             </Flex>
 
-            {/* New: payment breakdown */}
+            {/* Payment breakdown */}
             <Surface dense>
               <Flex direction="column" gap="1">
                 <Text size="2" style={{ opacity: 0.7 }}>
@@ -187,7 +224,7 @@ export default function EventDetail() {
 
             <div className="st-divider" />
 
-            {/* Advanced details: IDs + addresses */}
+            {/* Advanced details */}
             <AdvancedDetails
               open={showDetails}
               onOpenChange={setShowDetails}
@@ -255,6 +292,7 @@ export default function EventDetail() {
         </Surface>
       ) : null}
 
+      {/* Buy dialog only meaningful in Buyer mode, but safe even if opened */}
       <Dialog.Root open={open} onOpenChange={setOpen}>
         <Dialog.Content style={{ maxWidth: 520 }}>
           <Dialog.Title>Buy Ticket</Dialog.Title>
@@ -308,10 +346,14 @@ export default function EventDetail() {
                 Cancel
               </Button>
               <Button
-                disabled={!ev || !account?.address || isBuying}
+                disabled={!canBuy || !ev || !account?.address || isBuying}
                 onClick={onBuy}
               >
-                {isBuying ? "Purchasing…" : "Confirm Purchase"}
+                {!canBuy
+                  ? "Buyer mode required"
+                  : isBuying
+                    ? "Purchasing…"
+                    : "Confirm Purchase"}
               </Button>
             </Flex>
           </Flex>

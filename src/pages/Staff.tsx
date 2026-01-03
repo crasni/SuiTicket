@@ -9,6 +9,7 @@ import {
 import { Transaction } from "@mysten/sui/transactions";
 
 import PageHeader from "../components/PageHeader";
+import BackButton from "../components/BackButton";
 import EmptyState from "../components/EmptyState";
 import QrScanModal from "../components/QrScanModal";
 import Surface from "../components/Surface";
@@ -319,6 +320,9 @@ export default function Staff() {
       />
 
       <Flex direction="column" gap="4">
+        <div className="st-backCorner">
+          <BackButton fallbackTo="/dashboard" label="Back" />
+        </div>
         <PageHeader
           title="Staff"
           subtitle="Pick a GateCap, scan/paste ticket ID, lookup, then issue a one-time permit."

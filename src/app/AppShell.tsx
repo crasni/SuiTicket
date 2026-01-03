@@ -11,7 +11,6 @@ import { Box, Button, Card, Container, Flex, Text } from "@radix-ui/themes";
 import Toaster from "../components/Toaster";
 import {
   clearRole,
-  defaultPathForRole,
   getRole,
   roleEventName,
   setRole,
@@ -48,18 +47,31 @@ export default function AppShell() {
     };
   }, []);
 
+  // Pages that require a specific "mode" (role). Everything else is viewable by any role.
   const requiredRole = useMemo<AppRole | null>(() => {
     const p = location.pathname;
     if (p === "/") return null;
+    if (p.startsWith("/dashboard")) return null;
+
     if (p.startsWith("/staff")) return "staff";
     if (p.startsWith("/create")) return "organizer";
-    if (
-      p.startsWith("/explore") ||
-      p.startsWith("/tickets") ||
-      p.startsWith("/event")
-    )
-      return "buyer";
+    if (p.startsWith("/tickets")) return "buyer";
+
+    // IMPORTANT: Explore & Event detail are view pages => allow any role.
+    if (p.startsWith("/explore") || p.startsWith("/event")) return null;
+
     return null;
+  }, [location.pathname]);
+
+  // Wallet + role selection gating (separate from requiredRole).
+  const requiresWallet = useMemo(() => {
+    // only Home is public
+    return location.pathname !== "/";
+  }, [location.pathname]);
+
+  const requiresRoleSelection = useMemo(() => {
+    // app pages expect a role chosen (Home is where you pick it)
+    return location.pathname !== "/";
   }, [location.pathname]);
 
   const roleLabel = useMemo(() => {
@@ -80,13 +92,19 @@ export default function AppShell() {
     switch (role) {
       case "buyer":
         return [
+          { to: "/dashboard", label: "Dashboard" },
           { to: "/explore", label: "Explore" },
           { to: "/tickets", label: "My Tickets" },
         ];
       case "organizer":
-        return [{ to: "/create", label: "Create" }];
+        return [
+          { to: "/dashboard", label: "Dashboard" },
+          { to: "/create", label: "Create" },
+          { to: "/explore", label: "Explore" }, // allow preview
+        ];
       case "staff":
         return [
+          { to: "/dashboard", label: "Dashboard" },
           { to: "/staff", label: "Check-in" },
           { to: "/staff/events", label: "Events" },
         ];
@@ -109,7 +127,10 @@ export default function AppShell() {
         <Container size="3" style={{ padding: "14px 16px" }}>
           <Flex align="center" justify="between" gap="3">
             <Flex align="center" gap="4">
-              <Link to="/" style={{ textDecoration: "none", color: "inherit" }}>
+              <Link
+                to={role ? "/dashboard" : "/"}
+                style={{ textDecoration: "none", color: "inherit" }}
+              >
                 <Text size="4" weight="bold">
                   SuiTicket
                 </Text>
@@ -149,7 +170,7 @@ export default function AppShell() {
 
       <Container size={isHome ? "4" : "3"} style={{ padding: "18px 16px" }}>
         <div key={location.pathname} className="st-page">
-          {requiredRole && !account?.address ? (
+          {requiresWallet && !account?.address ? (
             <Card style={{ borderRadius: 18 }}>
               <Flex direction="column" gap="3" style={{ padding: 18 }}>
                 <Text weight="bold" size="4">
@@ -167,7 +188,7 @@ export default function AppShell() {
                 </Flex>
               </Flex>
             </Card>
-          ) : requiredRole && !role ? (
+          ) : requiresRoleSelection && !role ? (
             <Card style={{ borderRadius: 18 }}>
               <Flex direction="column" gap="3" style={{ padding: 18 }}>
                 <Text weight="bold" size="4">
@@ -176,19 +197,31 @@ export default function AppShell() {
                 <Text size="2" style={{ opacity: 0.75, lineHeight: 1.6 }}>
                   Pick how you want to use SuiTicket. You can switch later.
                 </Text>
+
                 <Flex gap="2" wrap="wrap" align="center">
                   <Button
                     onClick={() => {
-                      setRole(requiredRole);
-                      nav(defaultPathForRole(requiredRole));
+                      setRole("buyer");
+                      setRoleState("buyer");
                     }}
                   >
-                    Continue as{" "}
-                    {requiredRole === "buyer"
-                      ? "Buyer"
-                      : requiredRole === "organizer"
-                        ? "Organizer"
-                        : "Staff"}
+                    Buyer
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setRole("organizer");
+                      setRoleState("organizer");
+                    }}
+                  >
+                    Organizer
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setRole("staff");
+                      setRoleState("staff");
+                    }}
+                  >
+                    Staff
                   </Button>
                   <Button variant="soft" color="gray" onClick={() => nav("/")}>
                     Back Home
@@ -218,7 +251,7 @@ export default function AppShell() {
                   <Button
                     onClick={() => {
                       setRole(requiredRole);
-                      nav(defaultPathForRole(requiredRole));
+                      setRoleState(requiredRole);
                     }}
                   >
                     Switch to{" "}

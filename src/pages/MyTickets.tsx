@@ -9,6 +9,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { QRCodeSVG } from "qrcode.react";
 
 import PageHeader from "../components/PageHeader";
+import BackButton from "../components/BackButton";
 import EmptyState from "../components/EmptyState";
 import Surface from "../components/Surface";
 import CopyPill from "../components/CopyPill";
@@ -360,6 +361,9 @@ export default function MyTickets() {
       />
 
       <Flex direction="column" gap="4">
+        <div className="st-backCorner">
+          <BackButton fallbackTo="/dashboard" label="Back" />
+        </div>
         <PageHeader
           title="My Tickets"
           subtitle="Keep it clean. Show QR only when staff needs to scan."

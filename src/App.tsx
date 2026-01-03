@@ -9,6 +9,7 @@ import Staff from "./pages/Staff";
 import StaffEvents from "./pages/StaffEvents";
 import CreateEvent from "./pages/CreateEvent";
 import DebugConsole from "./pages/DebugConsole";
+import Dashboard from "./pages/Dashboard";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<Home />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/explore" element={<Explore />} />
           <Route path="/event/:eventId" element={<EventDetail />} />
           <Route path="/tickets" element={<MyTickets />} />

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Flex, Text, TextField } from "@radix-ui/themes";
 import PageHeader from "../components/PageHeader";
+import BackButton from "../components/BackButton";
 import Surface from "../components/Surface";
 import AdvancedDetails from "../components/AdvancedDetails";
 import CopyPill from "../components/CopyPill";
@@ -57,6 +58,9 @@ export default function CreateEvent() {
 
   return (
     <Flex direction="column" gap="4">
+      <div className="st-backCorner">
+        <BackButton fallbackTo="/dashboard" label="Back" />
+      </div>
       <PageHeader
         title="Create Event"
         subtitle="Create a new event and start selling tickets."

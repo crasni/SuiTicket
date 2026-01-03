@@ -4,6 +4,7 @@ import { Button, Flex, Text, TextField } from "@radix-ui/themes";
 import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 
 import PageHeader from "../components/PageHeader";
+import BackButton from "../components/BackButton";
 import EmptyState from "../components/EmptyState";
 import Surface from "../components/Surface";
 import CopyPill from "../components/CopyPill";
@@ -150,6 +151,9 @@ export default function StaffEvents() {
 
   return (
     <Flex direction="column" gap="4">
+      <div className="st-backCorner">
+        <BackButton fallbackTo="/dashboard" label="Back" />
+      </div>
       <PageHeader
         title="Staff Events"
         subtitle="Manage your events (GateCaps) and choose which one to use for check-in."
