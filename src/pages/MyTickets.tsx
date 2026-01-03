@@ -241,7 +241,6 @@ export default function MyTickets() {
       const type = (it.data as any)?.type as string | undefined;
       if (!id || !type) continue;
 
-      // ✅ strip generics: Ticket<...> / RedeemPermit<...>
       const baseType = type.split("<")[0];
       if (!baseType.startsWith(pkgPrefix)) continue;
 
@@ -437,7 +436,6 @@ export default function MyTickets() {
                           onClick={() => {
                             setEventDetails((m) => {
                               const next = !m[eventKey];
-                              // only fetch when opening
                               if (next) loadEventInfo(eventKey).catch(() => {});
                               return { ...m, [eventKey]: next };
                             });
@@ -602,8 +600,23 @@ export default function MyTickets() {
                       const quickPermit =
                         !t.used && perms.length === 1 ? perms[0] : null;
 
+                      const isActive = !t.used;
+
                       return (
-                        <Surface key={t.id}>
+                        <Surface
+                          key={t.id}
+                          style={
+                            isActive
+                              ? {
+                                  border: "1px solid rgba(59,130,246,0.35)",
+                                  background:
+                                    "linear-gradient(135deg, rgba(59,130,246,0.18), rgba(14,165,233,0.06), rgba(255,255,255,0.02))",
+                                  boxShadow:
+                                    "0 16px 44px rgba(0,0,0,0.40), 0 0 0 1px rgba(59,130,246,0.10) inset",
+                                }
+                              : undefined
+                          }
+                        >
                           <Flex direction="column" gap="2">
                             <Flex
                               align="center"

@@ -2,6 +2,7 @@ import { useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
 import { ticketTargets } from "../sui/targets";
 import { suiToMist } from "../sui/parse";
+import { EVENT_REGISTRY_ID } from "../config/contracts";
 
 function strToU8Vector(s: string): number[] {
   return Array.from(new TextEncoder().encode(s));
@@ -33,14 +34,32 @@ export function useTicketActions() {
     feeBps: number;
     platform: string;
     packageId?: string;
+    /**
+     * Optional override (useful for dev/testing).
+     * If omitted, uses VITE_TICKET_REGISTRY_ID via EVENT_REGISTRY_ID.
+     */
+    registryId?: string;
   }) {
     const targets = ticketTargets(args.packageId);
     const tx = new Transaction();
     tx.setGasBudget(25_000_000);
 
+    const registryId = args.registryId ?? EVENT_REGISTRY_ID;
+    if (!registryId) {
+      throw new Error(
+        "Missing EventRegistry id. Set VITE_TICKET_REGISTRY_ID in .env.local (after calling init_registry once).",
+      );
+    }
+
+    // ✅ IMPORTANT:
+    // For shared objects, prefer tx.object(id) unless you already know initialSharedVersion.
+    // Move will enforce mutability via &mut EventRegistry in the function signature.
+    const regArg = tx.object(registryId);
+
     tx.moveCall({
       target: targets.createEvent,
       arguments: [
+        regArg,
         tx.pure.vector("u8", strToU8Vector(args.name)),
         tx.pure.u64(suiToMist(args.priceSui)),
         tx.pure.u16(args.feeBps),
@@ -48,7 +67,6 @@ export function useTicketActions() {
       ],
     });
 
-    // ✅ no "options" here anymore
     return signAndExec({
       transaction: tx,
       chain: "sui:testnet",
