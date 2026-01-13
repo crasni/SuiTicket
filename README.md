@@ -1,107 +1,178 @@
-# SuiStage — Local Test (Testnet)
+# SuiTicket (SuiStage) — Minimal Ticketing dApp on Sui
 
-This repo contains a minimal ticketing flow on Sui:
+A minimal end-to-end ticket flow on **Sui Testnet**:
 
-**Create Event → Buy Ticket (paid) → Redeem (check-in)**
+**Create Event → Buy Ticket (paid) → Check-in (redeem)**  
+with an optional **staff-issued one-time permit** flow.
+
+---
+
+## What’s inside
+
+### On-chain (Move)
+
+Located in `contracts/suistage_ticket_min`:
+
+-   `Event` (shared): event metadata + pricing
+-   `Ticket` (owned): buyer’s ticket, can be redeemed once
+-   `GateCap` (owned): staff/organizer capability to issue check-in permits
+-   `RedeemPermit` (owned, one-time): issued by staff, consumed by buyer at redeem
+-   `EventRegistry` (shared): simple registry so frontend can list/discover events
+
+### Frontend (React + Vite)
+
+-   Wallet connection via `@mysten/dapp-kit`
+-   Event listing + detail + purchase
+-   My Tickets view (ticket QR display)
+-   Staff check-in page (scan/paste ticket id → issue permit)
 
 ---
 
 ## Prerequisites
-- **Sui CLI** installed and working:
-  ```bash
-  sui --version
-  ```
-- **Node.js + pnpm**
-- Wallet set to **Sui Testnet** (e.g. Suiet / Backpack)
+
+-   **Sui CLI** installed
+    ```bash
+    sui --version
+    ```
+-   **Node.js + pnpm**
+-   A wallet on **Sui Testnet** (Slush / Suiet / Backpack, etc.)
 
 ---
 
 ## 1) Configure Sui CLI (Testnet)
+
 ```bash
-sui client envs
 sui client switch --env testnet
-sui client active-env
 sui client active-address
 ```
 
-(Optional) Get testnet SUI:
-```bash
-sui client faucet
-sui client balance
-```
+Make sure you have Testnet SUI for gas.
 
 ---
 
-## 2) Build Move Package (no deploy)
-```bash
-cd contracts/suistage_ticket_min
-sui move build
-```
+## 2) Publish the Move package
 
----
-
-## 3) Publish (Deploy) to Testnet
 ```bash
 cd contracts/suistage_ticket_min
 sui client publish --gas-budget 100000000
 ```
 
-After success, copy these from the output:
-- **PackageID** (under `Published Objects`)
-- **UpgradeCap object id** (under `Created Objects` → `0x2::package::UpgradeCap`)
+After it succeeds, copy from the output:
 
-You will paste **PackageID** into the frontend console.
+-   **Package ID**
+-   (Optional) **UpgradeCap** object id (if you plan to upgrade later)
 
 ---
 
-## 4) Upgrade (Redeploy) Later
-> Upgrade produces a **new PackageID** (version increases).  
-> Always update the frontend to the **latest** package id.
+## 3) Create the shared EventRegistry (one-time)
+
+This creates and shares the global registry object used by the Explore page.
 
 ```bash
-cd contracts/suistage_ticket_min
-sui client upgrade \
-  --upgrade-capability <UPGRADE_CAP_ID> \
-  --gas-budget 100000000 \
-  .
+sui client call \
+  --package <PACKAGE_ID> \
+  --module ticket \
+  --function init_registry \
+  --gas-budget 20000000
 ```
 
-After upgrade, copy the new **PackageID** from output.
+Copy the **shared object id** for `EventRegistry` from the transaction result.
 
 ---
 
-## 5) Run Frontend Locally
+## 4) Frontend setup
+
+From repo root:
+
 ```bash
-cd web
 pnpm install
+cp .env.example .env.local
+```
+
+Edit `.env.local`:
+
+```bash
+# Required
+VITE_TICKET_PACKAGE_ID=<PACKAGE_ID>
+VITE_TICKET_REGISTRY_ID=<EVENT_REGISTRY_SHARED_OBJECT_ID>
+
+# Optional (zkLogin via Enoki)
+VITE_ENOKI_API_KEY=
+VITE_GOOGLE_CLIENT_ID=
+# Optional override (defaults to testnet in code)
+VITE_SUI_NETWORK=testnet
+```
+
+> Note: the code expects `VITE_ENOKI_API_KEY` (not `VITE_ENOKI_PUBLIC_KEY`).
+
+---
+
+## 5) Run the app
+
+```bash
 pnpm dev
 ```
 
-Open the local dev server in your browser, connect wallet (Testnet).
+Open the local URL printed by Vite (usually `http://localhost:5173`).
 
 ---
 
-## 6) Test Flow in UI (Test Console)
-Recommended click order:
-1. **Connect wallet**
-2. Paste **Package ID** (latest)
-3. (Optional) **Faucet**
-4. **Create Event + Cap**
-   - Should auto-fill `Event ID` and `GateCap ID`
-5. **Buy Ticket**
-   - Uses `Price (SUI)` and pays on-chain
-   - Should auto-fill `Ticket ID`
-6. **Redeem**
-   - Marks ticket as used (check-in)
-7. **Refresh Owned** (or Lookup) if you want to verify objects/state
+## Usage guide (3 roles)
+
+### Organizer — Create Event
+
+1. Connect wallet
+2. Go to **Create Event** (`/create`)
+3. Enter name / price / fee / platform address
+4. Submit → event is shared and its ID is appended to the registry  
+   You also receive a **GateCap**.
+
+### Buyer — Buy Ticket
+
+1. Go to **Explore** (`/explore`) → pick an event
+2. **Buy Ticket** → a `Ticket` object is minted to your wallet
+3. View in **My Tickets** (`/tickets`) and show the ticket QR
+
+### Staff — Check-in
+
+1. Organizer transfers **GateCap** to staff (in-app or via wallet transfer if supported)
+2. Staff goes to **Staff** (`/staff`)
+3. Scan/paste ticket id → **Issue Permit** to the attendee
+4. Attendee redeems (permit is consumed, ticket becomes `used = true`)
 
 ---
 
-## Notes / Common Gotchas
-- **Package ID changes after upgrade** → paste the newest one in the UI.
-- **RPC indexing can lag** (owned list not updated instantly)  
-  → press **Refresh Owned** once, or wait a moment and press again.
-- If `buy_ticket` fails, check:
-  - You have enough **SUI balance** for price + gas
-  - You’re on **Testnet**
-  - The `Event ID` is from the same package version you’re calling
+## Upgrading the contract later
+
+If you publish an upgrade, **Package ID changes**.  
+Update:
+
+-   `VITE_TICKET_PACKAGE_ID` in `.env.local`
+
+(Registry can stay the same if you keep using the same shared registry object and your frontend targets are updated accordingly.)
+
+---
+
+## Common gotchas
+
+-   **Indexing lag** on Testnet: newly created objects may not show instantly.
+    -   Refresh once, or wait a few seconds then refresh again.
+-   `buy_ticket` fails:
+    -   Ensure you have enough Testnet SUI for **price + gas**
+    -   Ensure you’re on **Testnet**
+    -   Ensure frontend uses the latest **Package ID**
+-   zkLogin:
+    -   Google OAuth redirect must include:
+        -   `http://localhost:5173/auth` (dev)
+        -   `<your deployed domain>/auth` (prod)
+
+---
+
+## Scripts
+
+```bash
+pnpm dev       # run locally
+pnpm build     # production build
+pnpm preview   # preview production build locally
+pnpm lint
+```
