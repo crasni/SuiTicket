@@ -5,6 +5,8 @@ A minimal end-to-end ticket flow on **Sui Testnet**:
 **Create Event → Buy Ticket (paid) → Check-in (redeem)**  
 with an optional **staff-issued one-time permit** flow.
 
+[Watch the demo on YouTube](https://www.youtube.com/watch?v=UC_j-JYgDKc)
+
 ---
 
 ## What’s inside
